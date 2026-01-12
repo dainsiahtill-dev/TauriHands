@@ -12,13 +12,15 @@ use uuid::Uuid;
 
 use crate::services::audit::now_ms;
 use crate::services::audit::AuditLog;
-use crate::services::llm::{request_completion, LlmProfile, LlmStore};
+use crate::services::judge::{JudgeContext, JudgeEngine, JudgeRule};
+use crate::services::llm::{request_completion, request_completion_stream, LlmProfile, LlmStore};
 use crate::services::pty::{TerminalExecRequest, TerminalManager};
+use crate::services::tool_dispatcher::ToolDispatcher as ToolDispatcherTrait;
 use crate::services::tools::{
     max_read_bytes, read_file, run_command, search, write_file, CommandRequest, ReadFileRequest,
     SearchMatch, SearchRequest, ToolResult, WriteFileRequest,
 };
-use crate::services::workspace::{display_path, WorkspaceState};
+use crate::services::workspace::{display_path, resolve_read_path_with_fallback, WorkspaceState};
 
 const KERNEL_EVENT_NAME: &str = "kernel-event";
 
@@ -124,6 +126,8 @@ pub struct RunState {
     pub turn: u32,
     pub messages: Vec<ChatMessage>,
     pub tool_context: ToolContext,
+    #[serde(default)]
+    pub task_id: Option<String>,
     pub plan: Option<Plan>,
     pub tasks: Option<TaskList>,
     pub budget: Budget,
@@ -199,6 +203,7 @@ impl RunState {
                 env: HashMap::new(),
                 session_id: None,
             },
+            task_id: None,
             plan: None,
             tasks: None,
             budget: Budget {
@@ -211,6 +216,51 @@ impl RunState {
         }
     }
 }
+
+fn is_stop_command(input: &str) -> bool {
+    let normalized = input.trim().to_lowercase();
+    matches!(
+        normalized.as_str(),
+        "stop" | "cancel" | "abort" | "停止" | "停止任务" | "取消"
+    )
+}
+
+fn is_continue_command(input: &str) -> bool {
+    let normalized = input.trim().to_lowercase();
+    matches!(normalized.as_str(), "continue" | "继续" | "继续吧" | "go on" | "继续执行")
+}
+
+fn infer_default_continue_reply(state: &RunState) -> Option<String> {
+    let last_assistant = state
+        .messages
+        .iter()
+        .rev()
+        .find(|msg| msg.role == "assistant")?;
+    let text = last_assistant.content.trim();
+    if text.is_empty() {
+        return None;
+    }
+    let lower = text.to_lowercase();
+    if lower.contains("user input required") || lower.contains("prompt:") {
+        return None;
+    }
+    let mentions_choice = lower.contains("还是")
+        || lower.contains("选择")
+        || lower.contains("确认")
+        || lower.contains("example")
+        || lower.contains("示例")
+        || lower.contains("只看")
+        || lower.contains("仅")
+        || lower.contains("workspace")
+        || lower.contains("本地")
+        || lower.contains("创建")
+        || lower.contains("修改");
+    if !mentions_choice {
+        return None;
+    }
+    Some("请在当前工作区实际创建/修改文件并继续执行。".to_string())
+}
+
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
@@ -268,6 +318,8 @@ pub struct Observation {
     pub exit_code: Option<i32>,
     pub artifacts: Option<serde_json::Value>,
     pub raw: Option<serde_json::Value>,
+    #[serde(default)]
+    pub requires_user: bool,
 }
 
 struct LlmDecision {
@@ -416,11 +468,32 @@ impl Runtime {
                     exit_code: None,
                     artifacts: None,
                     raw: None,
+                    requires_user: false,
                 });
             }
         }?;
         let observation = tool_result_to_observation(result, on_chunk);
         Ok(observation)
+    }
+
+    fn dispatch(
+        &self,
+        action: &Action,
+        session_id: Option<String>,
+        on_chunk: &mut dyn FnMut(String),
+    ) -> Result<Observation, String> {
+        self.execute(action, session_id, on_chunk)
+    }
+}
+
+impl ToolDispatcherTrait for Runtime {
+    fn dispatch(
+        &self,
+        action: &Action,
+        session_id: Option<String>,
+        on_chunk: &mut dyn FnMut(String),
+    ) -> Result<Observation, String> {
+        self.execute(action, session_id, on_chunk)
     }
 }
 
@@ -455,6 +528,7 @@ pub struct KernelManager {
     store: Arc<Mutex<StateStore>>,
     events: EventBus,
     llm: LlmStore,
+    judge: Arc<Mutex<JudgeEngine>>,
     paused: Arc<AtomicBool>,
     running: Arc<AtomicBool>,
 }
@@ -463,6 +537,7 @@ pub struct KernelManager {
 pub struct KernelStartRequest {
     pub session_id: Option<String>,
     pub max_steps: Option<u32>,
+    pub task_id: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -489,6 +564,7 @@ impl KernelManager {
         terminal: TerminalManager,
         workspace: WorkspaceState,
         audit: AuditLog,
+        llm_root: PathBuf,
     ) -> Self {
         let run_id = "default".to_string();
         let state = RunState::new(run_id.clone(), display_path(&workspace_root));
@@ -497,13 +573,14 @@ impl KernelManager {
             run_id,
         );
         let store = StateStore::new(workspace_root.join(".taurihands").join("runs"));
-        let llm = LlmStore::new(workspace_root.clone());
+        let llm = LlmStore::new(llm_root);
         Self {
             state: Arc::new(Mutex::new(state)),
             runtime: Runtime::new(terminal, workspace, audit),
             store: Arc::new(Mutex::new(store)),
             events,
             llm,
+            judge: Arc::new(Mutex::new(JudgeEngine::new())),
             paused: Arc::new(AtomicBool::new(false)),
             running: Arc::new(AtomicBool::new(false)),
         }
@@ -514,7 +591,6 @@ impl KernelManager {
             store.set_base_dir(root.join(".taurihands").join("runs"));
         }
         self.events.set_base_dir(root.join(".taurihands").join("events"));
-        self.llm.set_root(root.clone());
         let _ = self.update_state(|state| {
             state.tool_context.cwd = display_path(&root);
         });
@@ -527,6 +603,30 @@ impl KernelManager {
     pub fn save_llm_profile(&self, profile: LlmProfile) -> Result<LlmProfile, String> {
         self.llm.save_profile(profile.clone())?;
         Ok(self.llm.get_active_profile().unwrap_or(profile))
+    }
+
+    pub fn set_task_id(&self, task_id: Option<String>) -> Result<RunState, String> {
+        let snapshot = self.update_state(|state| {
+            state.task_id = task_id.clone();
+        })?;
+        Ok(snapshot)
+    }
+
+    pub fn set_judge_rules(&self, rules: Vec<JudgeRule>) -> Result<(), String> {
+        let mut judge = self
+            .judge
+            .lock()
+            .map_err(|_| "Judge lock poisoned".to_string())?;
+        judge.set_rules(rules);
+        Ok(())
+    }
+
+    pub fn get_judge_rules(&self) -> Result<Vec<JudgeRule>, String> {
+        let judge = self
+            .judge
+            .lock()
+            .map_err(|_| "Judge lock poisoned".to_string())?;
+        Ok(judge.rules().to_vec())
     }
 
     pub fn snapshot(&self) -> RunState {
@@ -552,11 +652,13 @@ impl KernelManager {
             let existing_tasks = state.tasks.clone();
             let existing_messages = state.messages.clone();
             let existing_turn = state.turn;
+            let existing_task_id = state.task_id.clone();
             *state = RunState::new(run_id.clone(), cwd);
             state.plan = existing_plan;
             state.tasks = existing_tasks;
             state.messages = existing_messages;
             state.turn = existing_turn;
+            state.task_id = request.task_id.clone().or(existing_task_id);
             state.agent_state = RunAgentState::Running;
             state.tool_context.session_id = request.session_id.clone();
             if let Some(max_steps) = request.max_steps {
@@ -603,6 +705,39 @@ impl KernelManager {
         Ok(snapshot)
     }
 
+    pub fn stop(&self, app: &AppHandle) -> Result<RunState, String> {
+        self.paused.store(false, Ordering::SeqCst);
+        let snapshot = self.update_state(|state| {
+            if state.agent_state != RunAgentState::Idle {
+                state.agent_state = RunAgentState::Finished;
+            }
+        })?;
+        self.emit_state(app, "stop");
+        Ok(snapshot)
+    }
+
+    pub fn continue_run(&self, app: &AppHandle) -> Result<RunState, String> {
+        self.paused.store(false, Ordering::SeqCst);
+        let mut should_spawn = false;
+        let snapshot = self.update_state(|state| {
+            if state.agent_state == RunAgentState::AwaitingUser {
+                state.agent_state = RunAgentState::Running;
+                state.budget.used_steps = 0;
+                state.last_error = None;
+                should_spawn = true;
+            }
+        })?;
+        self.emit_state(app, "continue");
+        if should_spawn && !self.running.swap(true, Ordering::SeqCst) {
+            let manager = self.clone();
+            let app_handle = app.clone();
+            tauri::async_runtime::spawn(async move {
+                manager.run_loop(app_handle).await;
+            });
+        }
+        Ok(snapshot)
+    }
+
     pub fn user_input(
         &self,
         app: &AppHandle,
@@ -612,20 +747,48 @@ impl KernelManager {
         if content.is_empty() {
             return Err("User input cannot be empty".to_string());
         }
+        let mut final_content = content.to_string();
+        let stop_command = is_stop_command(content);
+        let mut control_stop = false;
+        let mut should_spawn = false;
         let snapshot = self.update_state(|state| {
+            if stop_command {
+                control_stop = true;
+                state.agent_state = RunAgentState::Finished;
+                state.last_error = None;
+                return;
+            }
+            if state.agent_state == RunAgentState::AwaitingUser {
+                if is_continue_command(content) {
+                    if let Some(reply) = infer_default_continue_reply(state) {
+                        final_content = reply;
+                    }
+                }
+                state.budget.used_steps = 0;
+                state.last_error = None;
+            }
             state.messages.push(ChatMessage {
                 role: "user".to_string(),
-                content: content.to_string(),
+                content: final_content.clone(),
             });
             state.turn = state.turn.saturating_add(1);
             if state.agent_state != RunAgentState::Running {
                 state.agent_state = RunAgentState::Running;
             }
+            should_spawn = true;
         })?;
-        self.events
-            .emit(app, "UserMessage", &serde_json::json!({ "content": content }));
+        self.events.emit(
+            app,
+            "UserMessage",
+            &serde_json::json!({ "content": final_content }),
+        );
+        if control_stop {
+            self.paused.store(false, Ordering::SeqCst);
+            self.emit_state(app, "user_stop");
+            return Ok(snapshot);
+        }
         self.emit_state(app, "user_input");
-        if !self.running.swap(true, Ordering::SeqCst) {
+        if should_spawn && !self.running.swap(true, Ordering::SeqCst) {
             let manager = self.clone();
             let app_handle = app.clone();
             tauri::async_runtime::spawn(async move {
@@ -730,7 +893,24 @@ impl KernelManager {
         })?;
         self.events.emit(app, event_type, &serde_json::json!({ "plan": plan }));
         self.emit_state(app, "plan_update");
+        if let Some(task_id) = snapshot.task_id.clone() {
+            let _ = self.save_plan_for_task(&task_id, &plan);
+        }
         Ok(snapshot)
+    }
+
+    fn save_plan_for_task(&self, task_id: &str, plan: &Plan) -> Result<(), String> {
+        let base = self
+            .runtime
+            .workspace
+            .root()
+            .join(".taurihands")
+            .join("tasks")
+            .join(task_id);
+        create_dir_all(&base).map_err(|e| e.to_string())?;
+        let path = base.join("plan.json");
+        let data = serde_json::to_vec_pretty(plan).map_err(|e| e.to_string())?;
+        std::fs::write(path, data).map_err(|e| e.to_string())
     }
 
     fn emit_state(&self, app: &AppHandle, reason: &str) {
@@ -774,13 +954,27 @@ impl KernelManager {
                 break;
             }
             if snapshot.budget.used_steps >= snapshot.budget.max_steps {
+                let notice = format!(
+                    "Step budget reached ({} steps). Reply \"continue\" to proceed or \"stop\" to end.",
+                    snapshot.budget.max_steps
+                );
                 let _ = self.update_state(|state| {
                     state.agent_state = RunAgentState::AwaitingUser;
+                    state.last_error = None;
+                    state.messages.push(ChatMessage {
+                        role: "assistant".to_string(),
+                        content: notice.clone(),
+                    });
                 });
+                self.events.emit(
+                    &app,
+                    "AgentMessage",
+                    &serde_json::json!({ "content": notice }),
+                );
                 self.emit_state(&app, "step_budget");
                 break;
             }
-            let decision = match self.decide_actions_with_llm(&snapshot).await {
+            let decision = match self.decide_actions_with_llm(&app, &snapshot).await {
                 Ok(decision) => decision,
                 Err(err) => {
                     let _ = self.update_state(|state| {
@@ -823,9 +1017,9 @@ impl KernelManager {
             if actions.is_empty() {
                 if message.is_some() {
                     let _ = self.update_state(|state| {
-                        state.agent_state = RunAgentState::AwaitingUser;
+                        state.agent_state = RunAgentState::Finished;
                     });
-                    self.emit_state(&app, "awaiting_user");
+                    self.emit_state(&app, "finished");
                     break;
                 }
                 let message = "LLM returned no actions".to_string();
@@ -847,6 +1041,16 @@ impl KernelManager {
                 &serde_json::json!({ "actions": actions }),
             );
             for action in actions {
+                let current_state = match self.snapshot_agent_state() {
+                    Ok(state) => state,
+                    Err(err) => {
+                        self.events.emit(&app, "Error", &serde_json::json!({ "message": err }));
+                        break 'run;
+                    }
+                };
+                if current_state.agent_state != RunAgentState::Running {
+                    break 'run;
+                }
                 if matches!(action, Action::UserAsk { .. }) {
                     let _ = self.update_state(|state| {
                         state.agent_state = RunAgentState::AwaitingUser;
@@ -872,7 +1076,7 @@ impl KernelManager {
                         &serde_json::json!({ "action_id": action_id(&action), "chunk": chunk }),
                     );
                 };
-                let observation = match self.runtime.execute(
+                let observation = match self.runtime.dispatch(
                     &action,
                     snapshot.tool_context.session_id.clone(),
                     &mut chunk_handler,
@@ -917,11 +1121,29 @@ impl KernelManager {
                 self.events
                     .emit(&app, "Observation", &serde_json::json!({ "observation": observation }));
                 let _ = self.apply_observation(&app, &action, &observation);
+                if observation.requires_user {
+                    self.emit_state(&app, "awaiting_user");
+                    break 'run;
+                }
             }
             let _ = self.update_state(|state| {
                 state.budget.used_steps = state.budget.used_steps.saturating_add(1);
             });
             self.emit_state(&app, "step_complete");
+            if let Ok(snapshot) = self.snapshot_agent_state() {
+                let context = JudgeContext {
+                    iteration: snapshot.budget.used_steps,
+                    last_error: snapshot.last_error.clone(),
+                };
+                if let Ok(judge) = self.judge.lock() {
+                    let result = judge.evaluate(&context);
+                    self.events.emit(
+                        &app,
+                        "JudgeResult",
+                        &serde_json::json!({ "result": result }),
+                    );
+                }
+            }
         }
         self.running.store(false, Ordering::SeqCst);
     }
@@ -933,14 +1155,30 @@ impl KernelManager {
             .map_err(|_| "Kernel state lock poisoned".to_string())
     }
 
-    async fn decide_actions_with_llm(&self, state: &RunState) -> Result<LlmDecision, String> {
+    async fn decide_actions_with_llm(
+        &self,
+        app: &AppHandle,
+        state: &RunState,
+    ) -> Result<LlmDecision, String> {
         let profile = self.llm.get_active_profile().ok_or_else(|| {
             "LLM profile not configured. Save a profile in LLM Settings.".to_string()
         })?;
         let allowed = build_allowed_action_set(&profile);
         let system_prompt = build_system_prompt(&profile, &allowed);
         let user_prompt = build_user_prompt(state);
-        let raw = request_completion(&profile, &system_prompt, &user_prompt).await?;
+        let events = self.events.clone();
+        let app_handle = app.clone();
+        let raw = request_completion_stream(&profile, &system_prompt, &user_prompt, |chunk| {
+            if !chunk.trim().is_empty() {
+                events.emit(
+                    &app_handle,
+                    "AgentMessageChunk",
+                    &serde_json::json!({ "content": chunk }),
+                );
+            }
+        })
+        .await?;
+        events.emit(&app_handle, "AgentMessageDone", &serde_json::json!({}));
         let goal_hint = state
             .plan
             .as_ref()
@@ -972,6 +1210,11 @@ impl KernelManager {
                 if state.recent_observations.len() > 6 {
                     state.recent_observations.remove(0);
                 }
+            }
+            if observation.requires_user {
+                state.agent_state = RunAgentState::AwaitingUser;
+                state.last_error = Some(observation.summary.clone());
+                return;
             }
             if observation.ok {
                 if let Some(plan) = &mut state.plan {
@@ -1057,6 +1300,7 @@ fn tool_result_to_observation(result: ToolResult, on_chunk: &mut dyn FnMut(Strin
         exit_code: result.exit_code,
         artifacts: result.artifacts,
         raw: None,
+        requires_user: result.requires_user,
     }
 }
 
@@ -1068,7 +1312,7 @@ fn read_file_tool(
     let request = ReadFileRequest {
         path: path.to_string(),
     };
-    let resolved = workspace.resolve_path(&request.path)?;
+    let resolved = resolve_read_path_with_fallback(workspace, &request.path)?;
     let max_bytes = max_read_bytes();
     let file = std::fs::File::open(&resolved).map_err(|e| e.to_string())?;
     let metadata = file.metadata().map_err(|e| e.to_string())?;
@@ -1086,69 +1330,25 @@ fn search_tool(
     pattern: &str,
     paths: &Option<Vec<String>>,
 ) -> Result<ToolResult, String> {
-    let mut cmd = std::process::Command::new("rg");
-    cmd.arg("--json").arg(pattern);
-    let resolved_paths = if let Some(paths) = paths {
-        let mut resolved = Vec::new();
-        for path in paths {
-            resolved.push(workspace.resolve_path(path)?);
-        }
-        resolved
-    } else {
-        vec![workspace.root()]
-    };
-    for path in &resolved_paths {
-        cmd.arg(path);
+    let (resolved_paths, globs) = resolve_search_targets(workspace, paths);
+    let trimmed = pattern.trim();
+    if trimmed == "*" {
+        let output = run_rg_files(&resolved_paths, &globs)?;
+        let matches = parse_rg_files(&output, 200);
+        return Ok(search(
+            SearchRequest {
+                pattern: pattern.to_string(),
+                paths: paths.clone(),
+                glob: None,
+                max_results: Some(200),
+            },
+            matches,
+            audit,
+        ));
     }
-    let output = cmd.output().map_err(|e| e.to_string())?;
-    if !output.status.success() {
-        if output.status.code() == Some(1) {
-            let matches = parse_rg_json(&output.stdout, 200);
-            return Ok(search(
-                SearchRequest {
-                    pattern: pattern.to_string(),
-                    paths: paths.clone(),
-                    glob: None,
-                    max_results: Some(200),
-                },
-                matches,
-                audit,
-            ));
-        }
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let message = stderr.trim();
-        if message.contains("regex parse error") {
-            let mut fallback = std::process::Command::new("rg");
-            fallback.arg("--json").arg("--fixed-strings").arg(pattern);
-            for path in &resolved_paths {
-                fallback.arg(path);
-            }
-            let output = fallback.output().map_err(|e| e.to_string())?;
-            if output.status.success() {
-                let matches = parse_rg_json(&output.stdout, 200);
-                return Ok(search(
-                    SearchRequest {
-                        pattern: pattern.to_string(),
-                        paths: paths.clone(),
-                        glob: None,
-                        max_results: Some(200),
-                    },
-                    matches,
-                    audit,
-                ));
-            }
-        }
-        let message = if message.is_empty() {
-            format!(
-                "rg failed with exit code {}",
-                output.status.code().unwrap_or(-1)
-            )
-        } else {
-            message.to_string()
-        };
-        return Err(message);
-    }
-    let matches = parse_rg_json(&output.stdout, 200);
+    let (normalized, force_fixed) = normalize_search_pattern(trimmed);
+    let output = run_rg_search(&normalized, &resolved_paths, &globs, force_fixed)?;
+    let matches = parse_rg_json(&output, 200);
     Ok(search(
         SearchRequest {
             pattern: pattern.to_string(),
@@ -1199,6 +1399,132 @@ fn parse_rg_json(output: &[u8], max_results: usize) -> Vec<SearchMatch> {
         });
     }
     matches
+}
+
+fn parse_rg_files(output: &[u8], max_results: usize) -> Vec<SearchMatch> {
+    let mut matches = Vec::new();
+    let stdout = String::from_utf8_lossy(output);
+    for line in stdout.lines() {
+        if matches.len() >= max_results {
+            break;
+        }
+        let path = line.trim();
+        if path.is_empty() {
+            continue;
+        }
+        matches.push(SearchMatch {
+            path: path.to_string(),
+            line: 0,
+            column: 0,
+            text: path.to_string(),
+        });
+    }
+    matches
+}
+
+fn normalize_search_pattern(pattern: &str) -> (String, bool) {
+    let trimmed = pattern.trim();
+    if trimmed.is_empty() || trimmed == "*" {
+        return (".".to_string(), false);
+    }
+    let force_fixed = trimmed.starts_with('*') || trimmed.starts_with('?');
+    (trimmed.to_string(), force_fixed)
+}
+
+fn resolve_search_targets(
+    workspace: &WorkspaceState,
+    paths: &Option<Vec<String>>,
+) -> (Vec<PathBuf>, Vec<String>) {
+    let mut resolved = Vec::new();
+    let mut globs = Vec::new();
+    if let Some(paths) = paths {
+        for path in paths {
+            if is_glob_like(path) {
+                globs.push(path.to_string());
+                continue;
+            }
+            if let Ok(found) = workspace.resolve_path(path) {
+                resolved.push(found);
+            }
+        }
+    }
+    if resolved.is_empty() {
+        resolved.push(workspace.root());
+    }
+    (resolved, globs)
+}
+
+fn is_glob_like(value: &str) -> bool {
+    value.contains('*') || value.contains('?') || value.contains('[')
+}
+
+fn run_rg_search(
+    pattern: &str,
+    paths: &[PathBuf],
+    globs: &[String],
+    force_fixed: bool,
+) -> Result<Vec<u8>, String> {
+    let output = run_rg_search_inner(pattern, paths, globs, force_fixed)?;
+    if is_rg_ok(&output) {
+        return Ok(output.stdout);
+    }
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    if !force_fixed && is_rg_regex_error(&stderr) {
+        let retry = run_rg_search_inner(pattern, paths, globs, true)?;
+        if is_rg_ok(&retry) {
+            return Ok(retry.stdout);
+        }
+        let retry_err = String::from_utf8_lossy(&retry.stderr);
+        return Err(retry_err.trim().to_string());
+    }
+    Err(stderr.trim().to_string())
+}
+
+fn run_rg_files(paths: &[PathBuf], globs: &[String]) -> Result<Vec<u8>, String> {
+    let mut cmd = std::process::Command::new("rg");
+    cmd.arg("--files");
+    for glob in globs {
+        cmd.arg("--glob").arg(glob);
+    }
+    for path in paths {
+        cmd.arg(path);
+    }
+    let output = cmd.output().map_err(|e| e.to_string())?;
+    if is_rg_ok(&output) {
+        return Ok(output.stdout);
+    }
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    Err(stderr.trim().to_string())
+}
+
+fn run_rg_search_inner(
+    pattern: &str,
+    paths: &[PathBuf],
+    globs: &[String],
+    force_fixed: bool,
+) -> Result<std::process::Output, String> {
+    let mut cmd = std::process::Command::new("rg");
+    cmd.arg("--json");
+    for glob in globs {
+        cmd.arg("--glob").arg(glob);
+    }
+    if force_fixed {
+        cmd.arg("--fixed-strings");
+    }
+    cmd.arg(pattern);
+    for path in paths {
+        cmd.arg(path);
+    }
+    cmd.output().map_err(|e| e.to_string())
+}
+
+fn is_rg_ok(output: &std::process::Output) -> bool {
+    output.status.success() || output.status.code() == Some(1)
+}
+
+fn is_rg_regex_error(stderr: &str) -> bool {
+    let lowered = stderr.to_lowercase();
+    lowered.contains("regex parse error") || lowered.contains("repetition operator")
 }
 
 fn build_allowed_action_set(profile: &LlmProfile) -> Option<HashSet<String>> {
@@ -1272,12 +1598,17 @@ fn build_system_prompt(profile: &LlmProfile, allowed: &Option<HashSet<String>>) 
     let allowed_list = allowed_action_list(allowed);
     prompt.push_str("You are the TauriHands kernel agent.\n");
     prompt.push_str("Respond with strict JSON only. Do not wrap in markdown.\n");
+    prompt.push_str("If the user asks to run a command or list files, you must include a tool action.\n");
+    prompt.push_str("Do not reply with only text when a tool action is required.\n");
     if !allowed_list.is_empty() {
         prompt.push_str(&format!(
             "Allowed actions: {}.\n",
             allowed_list.join(", ")
         ));
     }
+    prompt.push_str("Default behavior: apply changes directly in the current workspace.\n");
+    prompt.push_str("Do not ask whether to show sample code vs create files; proceed with workspace changes unless the user explicitly asks for sample-only.\n");
+    prompt.push_str("If you must ask for confirmation, ask once and wait for user input. If the user replies \"continue\" or \"继续\", treat that as approval to proceed with the default.\n");
     prompt.push_str("Return a single JSON object with this shape:\n");
     prompt.push_str("{\"message\":\"brief update\",\"actions\":[...]}.\n");
     prompt.push_str("Action schemas:\n");
@@ -1306,7 +1637,11 @@ fn build_system_prompt(profile: &LlmProfile, allowed: &Option<HashSet<String>>) 
         "- task.update: {\"type\":\"task.update\",\"id\":\"...\",\"tasks\":{\"items\":[{\"id\":\"...\",\"title\":\"...\",\"status\":\"todo\"}]}}\n",
     );
     prompt.push_str("- user.ask: {\"type\":\"user.ask\",\"id\":\"...\",\"question\":\"...\"}\n");
-    prompt.push_str("Use plan.update when no plan exists. Ask the user if information is missing.\n");
+    prompt.push_str("Use plan.update when planning is needed, but execute tools for direct requests.\n");
+    prompt.push_str("Ask the user only if required inputs are missing.\n");
+    prompt.push_str("Avoid repeating identical tool calls when recent observations already contain the answer.\n");
+    prompt.push_str("If the user asks to scan or read the entire project, confirm with user.ask before broad searches.\n");
+    prompt.push_str("For directory listing on Windows, use terminal.exec with command \"dir\".\n");
     prompt
 }
 
@@ -1356,6 +1691,7 @@ fn allowed_action_list(allowed: &Option<HashSet<String>>) -> Vec<String> {
 
 fn build_user_prompt(state: &RunState) -> String {
     let mut prompt = String::new();
+    prompt.push_str(&format!("Platform: {}\n", std::env::consts::OS));
     prompt.push_str(&format!("Workspace: {}\n", state.tool_context.cwd));
     prompt.push_str(&format!(
         "Budget: {}/{}\n",
@@ -1449,15 +1785,26 @@ fn parse_llm_response(raw: &str, goal_hint: Option<&str>) -> Result<LlmDecision,
 
 fn parse_json_payload(raw: &str) -> Result<serde_json::Value, String> {
     let cleaned = strip_code_fence(raw);
-    if let Ok(value) = serde_json::from_str::<serde_json::Value>(&cleaned) {
-        return Ok(value);
-    }
-    if let Some(snippet) = extract_json_snippet(&cleaned) {
-        if let Ok(value) = serde_json::from_str::<serde_json::Value>(&snippet) {
-            return Ok(value);
+    match serde_json::from_str::<serde_json::Value>(&cleaned) {
+        Ok(value) => return Ok(value),
+        Err(primary_err) => {
+            if let Some(snippet) = extract_json_snippet(&cleaned) {
+                match serde_json::from_str::<serde_json::Value>(&snippet) {
+                    Ok(value) => return Ok(value),
+                    Err(snippet_err) => {
+                        return Err(build_json_parse_error(
+                            raw,
+                            &cleaned,
+                            Some(&snippet),
+                            &primary_err,
+                            Some(&snippet_err),
+                        ));
+                    }
+                }
+            }
+            Err(build_json_parse_error(raw, &cleaned, None, &primary_err, None))
         }
     }
-    Err("Unable to parse JSON response from LLM".to_string())
 }
 
 fn strip_code_fence(raw: &str) -> String {
@@ -1498,6 +1845,44 @@ fn extract_json_snippet(raw: &str) -> Option<String> {
         return None;
     }
     Some(raw[start..=end].to_string())
+}
+
+fn build_json_parse_error(
+    raw: &str,
+    cleaned: &str,
+    snippet: Option<&str>,
+    primary_err: &serde_json::Error,
+    snippet_err: Option<&serde_json::Error>,
+) -> String {
+    let raw_preview = truncate_preview(raw, 400);
+    let cleaned_preview = truncate_preview(cleaned, 400);
+    let snippet_preview = snippet
+        .map(|value| truncate_preview(value, 400))
+        .unwrap_or_else(|| "none".to_string());
+    let snippet_err_text = snippet_err
+        .map(|err| err.to_string())
+        .unwrap_or_else(|| "none".to_string());
+    format!(
+        "Unable to parse JSON response from LLM.\nprimary_error: {}\nsnippet_error: {}\nraw_len: {}\ncleaned_len: {}\nraw_preview: {}\ncleaned_preview: {}\nsnippet_preview: {}",
+        primary_err,
+        snippet_err_text,
+        raw.len(),
+        cleaned.len(),
+        raw_preview,
+        cleaned_preview,
+        snippet_preview
+    )
+}
+
+fn truncate_preview(value: &str, max_len: usize) -> String {
+    if value.len() <= max_len {
+        return value.to_string();
+    }
+    let mut end = max_len;
+    while end > 0 && !value.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}...", &value[..end])
 }
 
 fn extract_message(value: &serde_json::Value) -> Option<String> {

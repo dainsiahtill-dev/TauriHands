@@ -2,6 +2,7 @@ import { reactive, readonly } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { terminalStore } from "../stores/terminal";
+import { missionStore } from "../stores/mission";
 
 type RunAgentState = "IDLE" | "RUNNING" | "PAUSED" | "AWAITING_USER" | "ERROR" | "FINISHED";
 
@@ -57,6 +58,7 @@ type RunState = {
   budget: Budget;
   autoRun: boolean;
   lastError?: string | null;
+  taskId?: string | null;
 };
 
 type KernelEvent = {
@@ -88,6 +90,26 @@ type LogEntry = {
   timestamp: number;
 };
 
+type ChatToolCall = {
+  id: string;
+  tool: string;
+  detail: string;
+  status: ToolCallStatus;
+  startedAt: number;
+  finishedAt?: number;
+  exitCode?: number | null;
+  summary?: string | null;
+  output?: string;
+};
+
+type ChatEntry = {
+  id: string;
+  role: "user" | "assistant" | "system";
+  content: string;
+  timestamp: number;
+  toolCalls: ChatToolCall[];
+};
+
 type LlmStream = {
   content: string;
   updatedAt: number;
@@ -100,6 +122,8 @@ const state = reactive({
   logs: [] as LogEntry[],
   events: [] as KernelEvent[],
   toolOutputs: {} as Record<string, string>,
+  toolCallIndex: {} as Record<string, { entryIndex: number; toolIndex: number }>,
+  chatEntries: [] as ChatEntry[],
   llmStream: {
     content: "",
     updatedAt: 0,
@@ -125,10 +149,46 @@ function applyEvent(event: KernelEvent) {
       state.events = [event];
       state.toolOutputs = {};
       state.llmStream = { content: "", updatedAt: 0, active: false };
+      state.toolCallIndex = {};
+      state.chatEntries = [];
     }
     if (payload?.state) {
       applyRun(payload.state);
     }
+    return;
+  }
+
+  if (event.type === "UserMessage") {
+    const payload = event.payload as { content?: string };
+    const content = String(payload.content ?? "").trim();
+    if (!content) return;
+    state.chatEntries.push({
+      id: event.id,
+      role: "user",
+      content,
+      timestamp: event.ts,
+      toolCalls: [],
+    });
+    return;
+  }
+
+  if (event.type === "AgentMessage") {
+    const payload = event.payload as { content?: string };
+    const content = String(payload.content ?? "").trim();
+    if (!content) {
+      state.llmStream.active = false;
+      state.llmStream.content = "";
+      return;
+    }
+    state.chatEntries.push({
+      id: event.id,
+      role: "assistant",
+      content,
+      timestamp: event.ts,
+      toolCalls: [],
+    });
+    state.llmStream.active = false;
+    state.llmStream.content = "";
     return;
   }
 
@@ -138,6 +198,27 @@ function applyEvent(event: KernelEvent) {
     const id = String(action.id ?? "");
     if (!id) return;
     state.toolOutputs[id] = "";
+    if (!state.chatEntries.length) {
+      state.chatEntries.push({
+        id: `system-${event.id}`,
+        role: "system",
+        content: "Tool activity",
+        timestamp: event.ts,
+        toolCalls: [],
+      });
+    }
+    const entryIndex = state.chatEntries.length - 1;
+    const entry = state.chatEntries[entryIndex];
+    const toolIndex = entry.toolCalls.length;
+    entry.toolCalls.push({
+      id,
+      tool: String(action.type ?? "tool"),
+      detail: describeAction(action),
+      status: "running",
+      startedAt: event.ts,
+      output: "",
+    });
+    state.toolCallIndex[id] = { entryIndex, toolIndex };
     state.toolCalls.unshift({
       id,
       tool: String(action.type ?? "tool"),
@@ -158,6 +239,16 @@ function applyEvent(event: KernelEvent) {
     const next = `${current}${chunk}`;
     const limit = 8000;
     state.toolOutputs[id] = next.length > limit ? next.slice(next.length - limit) : next;
+    const index = state.toolCallIndex[id];
+    if (index) {
+      const entry = state.chatEntries[index.entryIndex];
+      const toolEntry = entry?.toolCalls[index.toolIndex];
+      if (toolEntry) {
+        const existing = toolEntry.output ?? "";
+        const output = `${existing}${chunk}`;
+        toolEntry.output = output.length > limit ? output.slice(output.length - limit) : output;
+      }
+    }
     return;
   }
 
@@ -165,6 +256,9 @@ function applyEvent(event: KernelEvent) {
     const payload = event.payload as { content?: string };
     const chunk = String(payload.content ?? "");
     if (!chunk) return;
+    if (!state.llmStream.active) {
+      state.llmStream.content = "";
+    }
     const current = state.llmStream.content ?? "";
     const next = `${current}${chunk}`;
     const limit = 8000;
@@ -174,7 +268,7 @@ function applyEvent(event: KernelEvent) {
     return;
   }
 
-  if (event.type === "AgentMessage") {
+  if (event.type === "AgentMessageDone") {
     state.llmStream.active = false;
     state.llmStream.content = "";
     return;
@@ -196,6 +290,23 @@ function applyEvent(event: KernelEvent) {
       call.exitCode = payload.exit_code ?? null;
       call.summary = payload.summary ?? null;
       call.finishedAt = event.ts;
+    }
+    const index = state.toolCallIndex[id];
+    if (index) {
+      const entry = state.chatEntries[index.entryIndex];
+      const toolEntry = entry?.toolCalls[index.toolIndex];
+      if (toolEntry) {
+        toolEntry.status = payload.ok ? "ok" : "error";
+        toolEntry.exitCode = payload.exit_code ?? null;
+        toolEntry.summary = payload.summary ?? null;
+        toolEntry.finishedAt = event.ts;
+        if (!toolEntry.output) {
+          const output = state.toolOutputs[id];
+          if (output) {
+            toolEntry.output = output;
+          }
+        }
+      }
     }
     return;
   }
@@ -244,6 +355,20 @@ async function initKernelStore() {
   try {
     const snapshot = (await invoke("kernel_get_state")) as RunState;
     applyRun(snapshot);
+    if (state.chatEntries.length === 0 && snapshot.messages.length) {
+      const base = Date.now();
+      snapshot.messages.forEach((msg, index) => {
+        const role =
+          msg.role === "assistant" || msg.role === "system" ? msg.role : "user";
+        state.chatEntries.push({
+          id: `seed-${base}-${index}`,
+          role,
+          content: msg.content,
+          timestamp: base + index,
+          toolCalls: [],
+        });
+      });
+    }
   } catch (error) {
     console.warn("Unable to load kernel state", error);
   }
@@ -258,10 +383,15 @@ async function initKernelStore() {
 
 async function start() {
   await initKernelStore();
+  if (!missionStore.state.active) {
+    await missionStore.loadActive();
+  }
+  const taskId = missionStore.state.active?.taskId || undefined;
   const snapshot = (await invoke("kernel_start", {
     request: {
       session_id: terminalStore.activeSessionId.value,
       max_steps: 8,
+      task_id: taskId,
     },
   })) as RunState;
   applyRun(snapshot);
@@ -274,6 +404,16 @@ async function pause() {
 
 async function resume() {
   const snapshot = (await invoke("kernel_resume")) as RunState;
+  applyRun(snapshot);
+}
+
+async function stop() {
+  const snapshot = (await invoke("kernel_stop")) as RunState;
+  applyRun(snapshot);
+}
+
+async function continueRun() {
+  const snapshot = (await invoke("kernel_continue")) as RunState;
   applyRun(snapshot);
 }
 
@@ -309,6 +449,8 @@ export const agentStore = {
   start,
   pause,
   resume,
+  stop,
+  continueRun,
   reset,
   userInput,
   updatePlan,

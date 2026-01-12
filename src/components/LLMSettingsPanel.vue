@@ -56,7 +56,7 @@ const toolToggles = ref([
   { id: "terminal.exec_interactive", label: "terminal.exec_interactive", enabled: true },
   { id: "terminal.run_command", label: "terminal.run_command", enabled: true },
   { id: "fs.read_file", label: "fs.read_file", enabled: true },
-  { id: "fs.write_file", label: "fs.write_file", enabled: false },
+  { id: "fs.write_file", label: "fs.write_file", enabled: true },
   { id: "fs.apply_patch", label: "fs.apply_patch", enabled: true },
   { id: "fs.search", label: "fs.search", enabled: true },
   { id: "git.status", label: "git.status", enabled: true },

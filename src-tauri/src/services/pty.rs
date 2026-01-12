@@ -404,10 +404,11 @@ impl TerminalManager {
             .spawn_command(cmd)
             .map_err(|e| e.to_string())?;
 
-        let mut reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
+        let reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
         let mut writer = pair.master.take_writer().map_err(|e| e.to_string())?;
 
-        let command_block = build_command_block(&request.command, &start_cmd, &end_cmd, wrap_script);
+        let command = request.command.clone();
+        let command_block = build_command_block(&command, &start_cmd, &end_cmd, wrap_script);
         writer
             .write_all(command_block.as_bytes())
             .map_err(|e| e.to_string())?;
@@ -415,12 +416,13 @@ impl TerminalManager {
 
         let (raw_output, mut exit_code, truncated, mut timed_out) =
             read_until_markers_from_reader(
-                &mut reader,
+                reader,
                 &start_marker,
                 &end_marker_prefix,
                 timeout_ms,
                 max_bytes,
             );
+        let had_timeout = timed_out;
         if timed_out && !raw_output.trim().is_empty() {
             exit_code = Some(0);
             timed_out = false;
@@ -429,8 +431,26 @@ impl TerminalManager {
         let _ = child.kill();
         let _ = child.wait();
 
-        let ok = exit_code.unwrap_or(1) == 0;
-        let stderr_excerpt = if timed_out {
+        let prompt = if had_timeout {
+            detect_confirmation_prompt(&raw_output)
+        } else {
+            None
+        };
+        let requires_user = prompt.is_some();
+        if requires_user {
+            exit_code = None;
+        }
+        let ok = if requires_user {
+            false
+        } else {
+            exit_code.unwrap_or(1) == 0
+        };
+        let stderr_excerpt = if let Some(prompt) = &prompt {
+            Some(format!(
+                "User input required. Prompt: {}\nCommand: {}",
+                prompt, command
+            ))
+        } else if timed_out {
             Some("Timeout waiting for command completion.".to_string())
         } else {
             None
@@ -440,7 +460,7 @@ impl TerminalManager {
             timestamp_ms: now_ms(),
             action: "terminal.exec_interactive".to_string(),
             session_id: None,
-            command: Some(request.command),
+            command: Some(command.clone()),
             payload: serde_json::json!({
                 "cwd": cwd.to_string_lossy(),
                 "shell": shell,
@@ -458,8 +478,11 @@ impl TerminalManager {
             exit_code,
             artifacts: Some(serde_json::json!({
                 "truncated": truncated,
+                "prompt": prompt,
+                "command": command,
             })),
             next_suggestion: None,
+            requires_user,
         })
     }
 
@@ -471,7 +494,7 @@ impl TerminalManager {
     ) -> Result<ToolResult, String> {
         let timeout_ms = request.timeout_ms.unwrap_or(15000);
         let max_bytes = request.max_bytes.unwrap_or(24000).min(200_000);
-        let (shell, log_path, start_marker, end_marker_prefix, start_pos) = {
+        let (shell, log_path, start_marker, end_marker_prefix, start_pos, command) = {
             let mut sessions = self
                 .sessions
                 .lock()
@@ -491,14 +514,14 @@ impl TerminalManager {
             let token = short_token();
             let (start_marker, end_marker_prefix, start_cmd, end_cmd, wrap_script) =
                 build_shell_markers(&shell, &token);
-            let command_block =
-                build_command_block(&request.command, &start_cmd, &end_cmd, wrap_script);
+            let command = request.command.clone();
+            let command_block = build_command_block(&command, &start_cmd, &end_cmd, wrap_script);
             session
                 .writer
                 .write_all(command_block.as_bytes())
                 .map_err(|e| e.to_string())?;
             session.writer.flush().map_err(|e| e.to_string())?;
-            (shell, log_path, start_marker, end_marker_prefix, start_pos)
+            (shell, log_path, start_marker, end_marker_prefix, start_pos, command)
         };
 
         let (raw_output, mut exit_code, truncated, mut timed_out) = read_until_markers_from_log(
@@ -509,12 +532,31 @@ impl TerminalManager {
             timeout_ms,
             max_bytes,
         )?;
+        let had_timeout = timed_out;
         if timed_out && !raw_output.trim().is_empty() {
             exit_code = Some(0);
             timed_out = false;
         }
-        let ok = exit_code.unwrap_or(1) == 0;
-        let stderr_excerpt = if timed_out {
+        let prompt = if had_timeout {
+            detect_confirmation_prompt(&raw_output)
+        } else {
+            None
+        };
+        let requires_user = prompt.is_some();
+        if requires_user {
+            exit_code = None;
+        }
+        let ok = if requires_user {
+            false
+        } else {
+            exit_code.unwrap_or(1) == 0
+        };
+        let stderr_excerpt = if let Some(prompt) = &prompt {
+            Some(format!(
+                "User input required. Prompt: {}\nCommand: {}",
+                prompt, command
+            ))
+        } else if timed_out {
             Some("Timeout waiting for command completion.".to_string())
         } else {
             None
@@ -524,7 +566,7 @@ impl TerminalManager {
             timestamp_ms: now_ms(),
             action: "terminal.exec_interactive".to_string(),
             session_id: Some(session_id),
-            command: Some(request.command),
+            command: Some(command.clone()),
             payload: serde_json::json!({
                 "shell": shell,
                 "exit_code": exit_code,
@@ -541,8 +583,11 @@ impl TerminalManager {
             exit_code,
             artifacts: Some(serde_json::json!({
                 "truncated": truncated,
+                "prompt": prompt,
+                "command": command,
             })),
             next_suggestion: None,
+            requires_user,
         })
     }
 
@@ -690,23 +735,171 @@ fn build_shell_markers(shell: &str, token: &str) -> (String, String, String, Str
 
 fn build_command_block(command: &str, start_cmd: &str, end_cmd: &str, wrap_script: bool) -> String {
     let newline = if cfg!(windows) { "\r\n" } else { "\n" };
+    let mut command = auto_confirm_command(command);
+    if wrap_script {
+        command = normalize_powershell_command(&command);
+    }
     let mut command_block = String::new();
     if wrap_script {
         command_block.push_str(start_cmd);
         command_block.push_str("; & { ");
-        command_block.push_str(command);
+        command_block.push_str(&command);
         command_block.push_str(" }; ");
         command_block.push_str(end_cmd);
         command_block.push_str(newline);
     } else {
         command_block.push_str(start_cmd);
         command_block.push_str(newline);
-        command_block.push_str(command);
+        command_block.push_str(&command);
         command_block.push_str(newline);
         command_block.push_str(end_cmd);
         command_block.push_str(newline);
     }
     command_block
+}
+
+fn detect_confirmation_prompt(output: &str) -> Option<String> {
+    let cleaned = strip_ansi_codes(output);
+    let mut candidates: Vec<String> = cleaned
+        .lines()
+        .map(|line| line.trim().to_string())
+        .filter(|line| !line.is_empty())
+        .collect();
+    candidates.reverse();
+    for line in candidates.into_iter().take(8) {
+        let lower = line.to_lowercase();
+        if lower.contains("y/n")
+            || lower.contains("yes/no")
+            || lower.contains("ok to")
+            || lower.contains("are you sure")
+            || lower.contains("confirm")
+            || lower.contains("proceed")
+            || lower.contains("press enter")
+            || lower.contains("continue?")
+        {
+            return Some(line);
+        }
+    }
+    None
+}
+
+fn strip_ansi_codes(input: &str) -> String {
+    let mut out = String::new();
+    let mut chars = input.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '\u{1b}' {
+            if let Some(next) = chars.next() {
+                if next == '[' {
+                    while let Some(code) = chars.next() {
+                        let code_byte = code as u32;
+                        if (0x40..=0x7e).contains(&code_byte) {
+                            break;
+                        }
+                    }
+                }
+            }
+            continue;
+        }
+        out.push(ch);
+    }
+    out
+}
+
+fn auto_confirm_command(command: &str) -> String {
+    let trimmed = command.trim_start();
+    let lower = trimmed.to_lowercase();
+    let leading = command.len().saturating_sub(trimmed.len());
+    let prefix = &command[..leading];
+
+    if lower.starts_with("npx") && !has_yes_flag(trimmed) {
+        let rest = &trimmed["npx".len()..];
+        return format!("{}npx --yes{}", prefix, rest);
+    }
+
+    if lower.starts_with("npm init") && !has_yes_flag(trimmed) {
+        let rest = &trimmed["npm init".len()..];
+        if rest.is_empty() {
+            return format!("{}npm init -y", prefix);
+        }
+        if rest.starts_with(char::is_whitespace) {
+            return format!("{}npm init -y{}", prefix, rest);
+        }
+        return format!("{}npm init -y {}", prefix, rest);
+    }
+
+    command.to_string()
+}
+
+fn has_yes_flag(command: &str) -> bool {
+    command
+        .split_whitespace()
+        .any(|token| token.eq_ignore_ascii_case("-y") || token.eq_ignore_ascii_case("--yes"))
+}
+
+fn normalize_powershell_command(command: &str) -> String {
+    let trimmed = command.trim();
+    if trimmed.is_empty() {
+        return command.to_string();
+    }
+    if command.contains('"') || command.contains('\'') {
+        return command.to_string();
+    }
+    let lower = command.to_lowercase();
+    let has_chain = lower.contains("&&") || lower.contains("||");
+    let has_cd = lower.starts_with("cd ") || lower.starts_with("cd\t") || lower.contains("cd /d");
+    if !has_chain && !has_cd {
+        return command.to_string();
+    }
+    let normalized = command.replace("||", "&&");
+    let mut parts = Vec::new();
+    for segment in normalized.split("&&") {
+        let normalized_segment = normalize_ps_segment(segment);
+        if !normalized_segment.is_empty() {
+            parts.push(normalized_segment);
+        }
+    }
+    if parts.is_empty() {
+        command.to_string()
+    } else {
+        parts.join("; ")
+    }
+}
+
+fn normalize_ps_segment(segment: &str) -> String {
+    let trimmed = segment.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    let lower = trimmed.to_lowercase();
+    if lower.starts_with("cd /d") || lower.starts_with("cd ") || lower.starts_with("cd\t") {
+        let mut rest = trimmed[2..].trim();
+        if rest.to_lowercase().starts_with("/d") {
+            rest = rest[2..].trim();
+        }
+        if rest.is_empty() {
+            return "Set-Location".to_string();
+        }
+        return format!("Set-Location -Path {}", quote_if_needed(rest));
+    }
+    if lower.starts_with("pushd ") || lower.starts_with("pushd\t") {
+        let rest = trimmed[5..].trim();
+        if rest.is_empty() {
+            return "Push-Location".to_string();
+        }
+        return format!("Push-Location -Path {}", quote_if_needed(rest));
+    }
+    trimmed.to_string()
+}
+
+fn quote_if_needed(value: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.starts_with('"') || trimmed.starts_with('\'') {
+        return trimmed.to_string();
+    }
+    if trimmed.contains(' ') || trimmed.contains('\t') {
+        return format!("'{}'", trimmed);
+    }
+    trimmed.to_string()
 }
 
 fn short_token() -> String {
@@ -782,7 +975,7 @@ fn is_marker_line_start(raw: &str, idx: usize) -> bool {
 }
 
 fn read_until_markers_from_reader(
-    reader: &mut dyn Read,
+    mut reader: Box<dyn Read + Send>,
     start_marker: &str,
     end_marker_prefix: &str,
     timeout_ms: u64,
@@ -791,13 +984,30 @@ fn read_until_markers_from_reader(
     let deadline = Instant::now() + Duration::from_millis(timeout_ms);
     let mut raw_output = String::new();
     let mut exit_code = None;
-    let mut buffer = [0u8; 8192];
+    let (sender, receiver) = std::sync::mpsc::channel::<Vec<u8>>();
+
+    std::thread::spawn(move || {
+        let mut buffer = [0u8; 8192];
+        loop {
+            match reader.read(&mut buffer) {
+                Ok(0) => break,
+                Ok(count) => {
+                    if sender.send(buffer[..count].to_vec()).is_err() {
+                        break;
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+    });
 
     while Instant::now() < deadline {
-        match reader.read(&mut buffer) {
-            Ok(0) => break,
-            Ok(count) => {
-                let chunk = String::from_utf8_lossy(&buffer[..count]);
+        let remaining = deadline
+            .saturating_duration_since(Instant::now())
+            .min(Duration::from_millis(200));
+        match receiver.recv_timeout(remaining) {
+            Ok(bytes) => {
+                let chunk = String::from_utf8_lossy(&bytes);
                 raw_output.push_str(&chunk);
                 if let Some((captured, code)) =
                     extract_between_markers(&raw_output, start_marker, end_marker_prefix)
@@ -815,7 +1025,10 @@ fn read_until_markers_from_reader(
                     }
                 }
             }
-            Err(_) => break,
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                continue;
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
         }
     }
 

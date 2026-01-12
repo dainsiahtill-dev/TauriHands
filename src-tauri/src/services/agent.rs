@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::Read;
+use std::path::PathBuf;
 use std::process::Command;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -13,7 +14,7 @@ use crate::services::tools::{
     max_read_bytes, read_file, run_command, search, CommandRequest, ReadFileRequest, SearchMatch,
     SearchRequest, ToolResult,
 };
-use crate::services::workspace::WorkspaceState;
+use crate::services::workspace::{resolve_read_path_with_fallback, WorkspaceState};
 
 const AGENT_STATE_EVENT: &str = "agent-state";
 
@@ -1152,7 +1153,7 @@ fn read_file_tool(
     path: String,
 ) -> Result<ToolResult, String> {
     let request = ReadFileRequest { path };
-    let resolved = workspace.resolve_path(&request.path)?;
+    let resolved = resolve_read_path_with_fallback(workspace, &request.path)?;
     let max_bytes = max_read_bytes();
     let file = File::open(&resolved).map_err(|e| e.to_string())?;
     let metadata = file.metadata().map_err(|e| e.to_string())?;
@@ -1170,34 +1171,29 @@ fn search_tool(
     pattern: String,
     paths: Option<Vec<String>>,
 ) -> Result<ToolResult, String> {
-    let mut cmd = Command::new("rg");
-    cmd.arg("--json");
-    cmd.arg(&pattern);
-
-    let resolved_paths = if let Some(paths) = &paths {
-        let mut resolved = Vec::new();
-        for path in paths {
-            resolved.push(workspace.resolve_path(path)?);
-        }
-        resolved
-    } else {
-        vec![workspace.root()]
-    };
-
-    for path in &resolved_paths {
-        cmd.arg(path);
+    let original_pattern = pattern.clone();
+    let (resolved_paths, globs) = resolve_search_targets(workspace, &paths);
+    let trimmed = pattern.trim();
+    if trimmed == "*" {
+        let output = run_rg_files(&resolved_paths, &globs)?;
+        let matches = parse_rg_files(&output, 200);
+        return Ok(search(
+            SearchRequest {
+                pattern: original_pattern,
+                paths,
+                glob: None,
+                max_results: Some(200),
+            },
+            matches,
+            audit,
+        ));
     }
-
-    let output = cmd.output().map_err(|e| e.to_string())?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(stderr.trim().to_string());
-    }
-
-    let matches = parse_rg_json(&output.stdout, 200);
+    let (normalized, force_fixed) = normalize_search_pattern(trimmed);
+    let output = run_rg_search(&normalized, &resolved_paths, &globs, force_fixed)?;
+    let matches = parse_rg_json(&output, 200);
     Ok(search(
         SearchRequest {
-            pattern,
+            pattern: original_pattern,
             paths,
             glob: None,
             max_results: Some(200),
@@ -1245,4 +1241,130 @@ fn parse_rg_json(output: &[u8], max_results: usize) -> Vec<SearchMatch> {
         });
     }
     matches
+}
+
+fn parse_rg_files(output: &[u8], max_results: usize) -> Vec<SearchMatch> {
+    let mut matches = Vec::new();
+    let stdout = String::from_utf8_lossy(output);
+    for line in stdout.lines() {
+        if matches.len() >= max_results {
+            break;
+        }
+        let path = line.trim();
+        if path.is_empty() {
+            continue;
+        }
+        matches.push(SearchMatch {
+            path: path.to_string(),
+            line: 0,
+            column: 0,
+            text: path.to_string(),
+        });
+    }
+    matches
+}
+
+fn normalize_search_pattern(pattern: &str) -> (String, bool) {
+    let trimmed = pattern.trim();
+    if trimmed.is_empty() || trimmed == "*" {
+        return (".".to_string(), false);
+    }
+    let force_fixed = trimmed.starts_with('*') || trimmed.starts_with('?');
+    (trimmed.to_string(), force_fixed)
+}
+
+fn resolve_search_targets(
+    workspace: &WorkspaceState,
+    paths: &Option<Vec<String>>,
+) -> (Vec<PathBuf>, Vec<String>) {
+    let mut resolved = Vec::new();
+    let mut globs = Vec::new();
+    if let Some(paths) = paths {
+        for path in paths {
+            if is_glob_like(path) {
+                globs.push(path.to_string());
+                continue;
+            }
+            if let Ok(found) = workspace.resolve_path(path) {
+                resolved.push(found);
+            }
+        }
+    }
+    if resolved.is_empty() {
+        resolved.push(workspace.root());
+    }
+    (resolved, globs)
+}
+
+fn is_glob_like(value: &str) -> bool {
+    value.contains('*') || value.contains('?') || value.contains('[')
+}
+
+fn run_rg_search(
+    pattern: &str,
+    paths: &[PathBuf],
+    globs: &[String],
+    force_fixed: bool,
+) -> Result<Vec<u8>, String> {
+    let output = run_rg_search_inner(pattern, paths, globs, force_fixed)?;
+    if is_rg_ok(&output) {
+        return Ok(output.stdout);
+    }
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    if !force_fixed && is_rg_regex_error(&stderr) {
+        let retry = run_rg_search_inner(pattern, paths, globs, true)?;
+        if is_rg_ok(&retry) {
+            return Ok(retry.stdout);
+        }
+        let retry_err = String::from_utf8_lossy(&retry.stderr);
+        return Err(retry_err.trim().to_string());
+    }
+    Err(stderr.trim().to_string())
+}
+
+fn run_rg_files(paths: &[PathBuf], globs: &[String]) -> Result<Vec<u8>, String> {
+    let mut cmd = Command::new("rg");
+    cmd.arg("--files");
+    for glob in globs {
+        cmd.arg("--glob").arg(glob);
+    }
+    for path in paths {
+        cmd.arg(path);
+    }
+    let output = cmd.output().map_err(|e| e.to_string())?;
+    if is_rg_ok(&output) {
+        return Ok(output.stdout);
+    }
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    Err(stderr.trim().to_string())
+}
+
+fn run_rg_search_inner(
+    pattern: &str,
+    paths: &[PathBuf],
+    globs: &[String],
+    force_fixed: bool,
+) -> Result<std::process::Output, String> {
+    let mut cmd = Command::new("rg");
+    cmd.arg("--json");
+    for glob in globs {
+        cmd.arg("--glob").arg(glob);
+    }
+    if force_fixed {
+        cmd.arg("--fixed-strings");
+    }
+    cmd.arg(pattern);
+    for path in paths {
+        cmd.arg(path);
+    }
+    cmd.output().map_err(|e| e.to_string())
+}
+
+fn is_rg_ok(output: &std::process::Output) -> bool {
+    output.status.success() || output.status.code() == Some(1)
+}
+
+fn is_rg_regex_error(stderr: &str) -> bool {
+    let lowered = stderr.to_lowercase();
+    lowered.contains("regex parse error") || lowered.contains("repetition operator")
 }

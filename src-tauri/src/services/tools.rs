@@ -15,6 +15,7 @@ pub struct ToolResult {
     pub exit_code: Option<i32>,
     pub artifacts: Option<serde_json::Value>,
     pub next_suggestion: Option<String>,
+    pub requires_user: bool,
 }
 
 #[derive(Deserialize)]
@@ -106,6 +107,7 @@ pub fn run_command(
         exit_code: output.status.code(),
         artifacts: None,
         next_suggestion: None,
+        requires_user: false,
     })
 }
 
@@ -137,6 +139,7 @@ pub fn read_file(
             "truncated": truncated,
         })),
         next_suggestion: None,
+        requires_user: false,
     }
 }
 
@@ -166,6 +169,7 @@ pub fn write_file(
             "bytes_written": bytes_written,
         })),
         next_suggestion: None,
+        requires_user: false,
     }
 }
 
@@ -197,6 +201,7 @@ pub fn search(
             "matches": matches,
         })),
         next_suggestion: None,
+        requires_user: false,
     }
 }
 

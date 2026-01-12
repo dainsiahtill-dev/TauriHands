@@ -8,6 +8,8 @@ const {
   start,
   pause,
   resume,
+  stop,
+  userInput,
   reset,
   updatePlan,
   updatePlanStatus,
@@ -19,6 +21,9 @@ const isRunning = computed(() => agentState.value === "RUNNING");
 const isPaused = computed(() => agentState.value === "PAUSED");
 const isAwaiting = computed(() => agentState.value === "AWAITING_USER");
 const canTogglePause = computed(() => isRunning.value || isPaused.value);
+const canStop = computed(
+  () => agentState.value === "RUNNING" || agentState.value === "PAUSED" || isAwaiting.value,
+);
 const planSteps = computed(() => run.value?.plan?.steps ?? []);
 const tasks = computed(() => run.value?.tasks?.items ?? []);
 const toolCalls = computed(() => state.toolCalls);
@@ -31,7 +36,11 @@ const activeToolOutput = computed(() => {
   if (!call) return "";
   return state.toolOutputs?.[call.id] ?? "";
 });
-const isThinking = computed(() => agentState.value === "RUNNING" && !activeToolCall.value);
+const streamContent = computed(() => state.llmStream?.content ?? "");
+const isStreaming = computed(() => state.llmStream?.active && !!streamContent.value);
+const isThinking = computed(
+  () => agentState.value === "RUNNING" && !activeToolCall.value && !isStreaming.value,
+);
 const latestErrorId = computed(() => logs.value.find((log) => log.level === "error")?.id ?? "");
 const lastError = computed(() => run.value?.lastError ?? "");
 const showError = computed(() => agentState.value === "ERROR" || !!lastError.value);
@@ -72,7 +81,10 @@ const emit = defineEmits<{
 
 const props = defineProps<{
   isDetached?: boolean;
+  showHeader?: boolean;
 }>();
+
+const showHeader = computed(() => props.showHeader !== false);
 
 function togglePause() {
   if (isPaused.value) {
@@ -80,10 +92,6 @@ function togglePause() {
   } else {
     pause();
   }
-}
-
-function focusChatInput() {
-  window.dispatchEvent(new Event("focus-chat-input"));
 }
 
 function formatTime(timestamp: number) {
@@ -187,7 +195,7 @@ watch(
 
 <template>
   <div class="agent-panel">
-    <div class="panel-header">
+    <div v-if="showHeader" class="panel-header">
       <div>
         <p class="eyebrow">Agent</p>
         <h3>Run controller</h3>
@@ -197,12 +205,13 @@ watch(
           {{ props.isDetached ? "Dock" : "Detach" }}
         </button>
         <button class="btn" type="button" @click="start" :disabled="isRunning">Start</button>
-        <button v-if="isAwaiting" class="btn primary" type="button" @click="focusChatInput">
+        <button v-if="isAwaiting" class="btn primary" type="button" @click="userInput('继续')">
           Continue
         </button>
         <button v-else class="btn" type="button" @click="togglePause" :disabled="!canTogglePause">
           {{ isPaused ? "Resume" : "Pause" }}
         </button>
+        <button class="btn" type="button" @click="stop" :disabled="!canStop">Stop</button>
         <button class="btn" type="button" @click="reset" :disabled="isRunning">Reset</button>
       </div>
     </div>
@@ -256,6 +265,10 @@ watch(
             {{ activeToolCall.tool }} · {{ activeToolCall.detail }}
           </p>
           <pre v-if="activeToolOutput" class="llm-preview-output">{{ activeToolOutput }}</pre>
+        </div>
+        <div v-else-if="isStreaming" class="llm-preview-block">
+          <span class="llm-preview-title">Streaming</span>
+          <pre class="llm-preview-output">{{ streamContent }}</pre>
         </div>
         <p v-else-if="isThinking" class="llm-preview-text">LLM is selecting the next action...</p>
         <p v-else class="llm-preview-text">
@@ -352,6 +365,10 @@ watch(
             {{ activeToolCall.tool }} · {{ activeToolCall.detail }}
           </p>
           <pre v-if="activeToolOutput" class="llm-preview-output">{{ activeToolOutput }}</pre>
+        </div>
+        <div v-else-if="isStreaming" class="llm-preview-block">
+          <span class="llm-preview-title">Streaming</span>
+          <pre class="llm-preview-output">{{ streamContent }}</pre>
         </div>
         <p v-else-if="isThinking" class="llm-preview-text">LLM is selecting the next action...</p>
         <p v-else class="llm-preview-text">

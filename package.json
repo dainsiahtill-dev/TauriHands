@@ -24,5 +24,18 @@
     "typescript": "~5.6.2",
     "vite": "^6.0.3",
     "vue-tsc": "^2.1.10"
-  }
+  },
+  "description": "TauriHands 是一个本地桌面“软件工程自动驾驶仪”（Tauri + Vue3，Windows 优先）。 你给一个目标，它会在真实工程环境里自动执行：",
+  "main": "index.js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dainsiahtill-dev/TauriHands.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/dainsiahtill-dev/TauriHands/issues"
+  },
+  "homepage": "https://github.com/dainsiahtill-dev/TauriHands#readme"
 }

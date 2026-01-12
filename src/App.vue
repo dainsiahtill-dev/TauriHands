@@ -30,6 +30,9 @@ import AppShell from "./layouts/AppShell.vue";
   --accent-3: #ff4fa2;
   --glow: rgba(45, 246, 255, 0.25);
   --shadow: 0 24px 60px rgba(2, 4, 8, 0.55);
+  --text-primary: #e6f3ff;
+  --text-secondary: #9bb0c6;
+  --text-tertiary: #6f8298;
 }
 
 * {
@@ -53,6 +56,41 @@ body {
 
 #app {
   min-height: 100vh;
+}
+
+.eyebrow {
+  margin: 0;
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: var(--text-tertiary);
+}
+
+.btn {
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  padding: 8px 10px;
+  font-size: 0.75rem;
+  background: var(--panel-glass);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.btn.primary {
+  background: linear-gradient(135deg, rgba(45, 246, 255, 0.9), rgba(74, 125, 255, 0.9));
+  color: #05060a;
+  border-color: transparent;
+  box-shadow: 0 0 18px rgba(45, 246, 255, 0.4);
+}
+
+.btn.ghost:hover {
+  border-color: rgba(45, 246, 255, 0.5);
+  color: var(--accent);
+}
+
+.btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 @keyframes rise {

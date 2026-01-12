@@ -9,9 +9,19 @@ type ChatMessage = {
   role: ChatRole;
   content: string;
   timestamp: number;
+  toolCalls?: ChatToolCall[];
 };
 
-const { state, initKernelStore, userInput } = agentStore;
+type ChatToolCall = {
+  id: string;
+  tool: string;
+  detail: string;
+  status: "running" | "ok" | "error";
+  output?: string;
+  summary?: string | null;
+};
+
+const { state, initKernelStore, userInput, stop } = agentStore;
 
 const systemMessage: ChatMessage = {
   id: "system-1",
@@ -20,15 +30,15 @@ const systemMessage: ChatMessage = {
   timestamp: Date.now(),
 };
 
-const messages = ref<ChatMessage[]>([systemMessage]);
 const input = ref("");
 const inputRef = ref<HTMLTextAreaElement | null>(null);
 const listRef = ref<HTMLDivElement | null>(null);
 const sendError = ref("");
 const agentState = computed(() => state.run?.agentState ?? "IDLE");
-const runMessages = computed(() => state.run?.messages ?? []);
-const lastCount = ref(0);
-const lastRunId = ref<string | null>(null);
+const isAwaiting = computed(() => agentState.value === "AWAITING_USER");
+const chatEntries = computed(() => state.chatEntries ?? []);
+const displayEntries = computed<ChatMessage[]>(() => [systemMessage, ...chatEntries.value]);
+const latestEventId = computed(() => state.events[0]?.id ?? "");
 
 function formatTime(timestamp: number) {
   return new Date(timestamp).toLocaleTimeString();
@@ -44,6 +54,26 @@ function handleFocusInput() {
   inputRef.value?.focus();
 }
 
+async function handleContinue() {
+  sendError.value = "";
+  try {
+    await userInput("继续");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    sendError.value = message || "Unable to continue.";
+  }
+}
+
+async function handleStop() {
+  sendError.value = "";
+  try {
+    await stop();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    sendError.value = message || "Unable to stop.";
+  }
+}
+
 async function sendMessage() {
   const value = input.value.trim();
   if (!value) return;
@@ -57,35 +87,10 @@ async function sendMessage() {
   }
 }
 
-function resetMessages() {
-  messages.value = [systemMessage];
-  lastCount.value = 0;
-}
-
-function syncMessages() {
-  const list = runMessages.value;
-  if (list.length < lastCount.value) {
-    resetMessages();
-  }
-  for (let i = lastCount.value; i < list.length; i += 1) {
-    const msg = list[i];
-    const role = (msg.role as ChatRole) || "user";
-    messages.value.push({
-      id: `msg-${i}`,
-      role,
-      content: msg.content,
-      timestamp: Date.now(),
-    });
-  }
-  lastCount.value = list.length;
-  void nextTick().then(scrollToBottom);
-}
-
 onMounted(async () => {
   await initKernelStore();
-  lastRunId.value = state.run?.runId ?? null;
-  syncMessages();
   window.addEventListener("focus-chat-input", handleFocusInput);
+  void nextTick().then(scrollToBottom);
 });
 
 onBeforeUnmount(() => {
@@ -93,19 +98,9 @@ onBeforeUnmount(() => {
 });
 
 watch(
-  () => state.run?.runId ?? null,
-  (value) => {
-    if (value !== lastRunId.value) {
-      lastRunId.value = value;
-      resetMessages();
-    }
-  },
-);
-
-watch(
-  () => runMessages.value.length,
+  () => latestEventId.value,
   () => {
-    syncMessages();
+    void nextTick().then(scrollToBottom);
   },
 );
 </script>
@@ -120,13 +115,48 @@ watch(
       <span class="status-pill" :data-state="agentState">{{ agentState }}</span>
     </header>
 
+    <div v-if="isAwaiting" class="awaiting-banner">
+      <div>
+        <p class="eyebrow">Action required</p>
+        <p class="awaiting-text">The agent is waiting for confirmation or input.</p>
+      </div>
+      <div class="awaiting-actions">
+        <button class="btn primary" type="button" @click="handleContinue">Continue</button>
+        <button class="btn ghost" type="button" @click="handleStop">Stop</button>
+      </div>
+    </div>
+
     <div ref="listRef" class="chat-messages">
-      <div v-for="message in messages" :key="message.id" class="chat-message" :data-role="message.role">
+      <div
+        v-for="message in displayEntries"
+        :key="message.id"
+        class="chat-message"
+        :data-role="message.role"
+      >
         <div class="message-meta">
           <span class="role">{{ message.role }}</span>
           <span class="time">{{ formatTime(message.timestamp) }}</span>
         </div>
         <p>{{ message.content }}</p>
+        <div v-if="message.toolCalls && message.toolCalls.length" class="tool-output">
+          <details
+            v-for="call in message.toolCalls"
+            :key="call.id"
+            class="tool-details"
+            :open="call.status === 'running'"
+          >
+            <summary>
+              <span class="tool-label">{{ call.tool }}</span>
+              <span class="tool-status" :data-status="call.status">{{ call.status }}</span>
+              <span class="tool-detail">{{ call.detail }}</span>
+            </summary>
+            <div class="tool-body">
+              <pre v-if="call.output" class="tool-output-text">{{ call.output }}</pre>
+              <p v-else class="empty-text">No output yet.</p>
+              <p v-if="call.summary" class="tool-summary">{{ call.summary }}</p>
+            </div>
+          </details>
+        </div>
       </div>
     </div>
 
@@ -209,6 +239,29 @@ watch(
   background: rgba(255, 184, 77, 0.12);
 }
 
+.awaiting-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(182, 255, 75, 0.35);
+  background: rgba(182, 255, 75, 0.08);
+}
+
+.awaiting-text {
+  margin: 4px 0 0;
+  color: #b6ff4b;
+  font-size: 0.85rem;
+}
+
+.awaiting-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .chat-messages {
   flex: 1;
   min-height: 0;
@@ -269,6 +322,100 @@ watch(
   line-height: 1.5;
 }
 
+.tool-output {
+  margin-top: 8px;
+  display: grid;
+  gap: 8px;
+}
+
+.tool-details {
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: rgba(8, 12, 20, 0.7);
+  overflow: hidden;
+}
+
+.tool-details summary {
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: #9bb0c6;
+  list-style: none;
+}
+
+.tool-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.tool-label {
+  color: #2df6ff;
+}
+
+.tool-status {
+  padding: 2px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  font-size: 0.6rem;
+  color: #c7d7ec;
+}
+
+.tool-status[data-status="running"] {
+  color: #2df6ff;
+  border-color: rgba(45, 246, 255, 0.4);
+  background: rgba(45, 246, 255, 0.12);
+}
+
+.tool-status[data-status="ok"] {
+  color: #b6ff4b;
+  border-color: rgba(182, 255, 75, 0.4);
+  background: rgba(182, 255, 75, 0.12);
+}
+
+.tool-status[data-status="error"] {
+  color: #ffb84d;
+  border-color: rgba(255, 184, 77, 0.4);
+  background: rgba(255, 184, 77, 0.12);
+}
+
+.tool-detail {
+  text-transform: none;
+  letter-spacing: 0;
+  color: #8aa0b7;
+  font-size: 0.7rem;
+}
+
+.tool-body {
+  padding: 8px 10px 10px;
+  border-top: 1px solid var(--line);
+  display: grid;
+  gap: 6px;
+}
+
+.tool-output-text {
+  margin: 0;
+  font-size: 0.72rem;
+  color: #c7d7ec;
+  font-family: "JetBrains Mono", monospace;
+  white-space: pre-wrap;
+  max-height: 180px;
+  overflow: auto;
+  background: rgba(5, 8, 14, 0.7);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px;
+}
+
+.tool-summary {
+  margin: 0;
+  font-size: 0.75rem;
+  color: #9bb0c6;
+}
+
 .chat-input {
   display: grid;
   gap: 8px;
@@ -306,6 +453,12 @@ watch(
   margin: 0;
   font-size: 0.75rem;
   color: #ffb84d;
+}
+
+.empty-text {
+  margin: 0;
+  font-size: 0.75rem;
+  color: #8aa0b7;
 }
 
 .btn {

@@ -1,5 +1,7 @@
+use std::collections::HashSet;
 use std::env;
-use std::path::{Path, PathBuf};
+use std::fs;
+use std::path::{Component, Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 #[derive(Clone)]
@@ -45,14 +47,17 @@ impl WorkspaceState {
     pub fn resolve_path_for_write(&self, input: &str) -> Result<PathBuf, String> {
         let root = self.root();
         let candidate = resolve_candidate(&root, input);
-        let parent = candidate
-            .parent()
-            .ok_or_else(|| "Invalid file path".to_string())?;
-        let canonical_parent = parent
-            .canonicalize()
-            .map_err(|e| format!("Invalid parent directory: {}", e))?;
-        ensure_within_root(&root, &canonical_parent)?;
-        Ok(candidate)
+        if candidate.exists() {
+            let canonical = candidate
+                .canonicalize()
+                .map_err(|e| format!("Invalid file path: {}", e))?;
+            ensure_within_root(&root, &canonical)?;
+            return Ok(candidate);
+        }
+        let canonical_root = canonicalize_or(root.clone());
+        let normalized = lexical_normalize(&candidate);
+        ensure_within_root_lexical(&canonical_root, &normalized)?;
+        Ok(normalized)
     }
 }
 
@@ -77,6 +82,140 @@ pub fn display_path(path: &Path) -> String {
     }
 }
 
+const READ_FALLBACK_EXTS: &[&str] = &[
+    "ts", "tsx", "js", "jsx", "vue", "mjs", "cjs", "mts", "cts", "json", "md", "toml", "yaml",
+    "yml",
+];
+
+pub fn resolve_read_path_with_fallback(
+    workspace: &WorkspaceState,
+    input: &str,
+) -> Result<PathBuf, String> {
+    let normalized = normalize_path_input(input);
+    let candidates = build_read_candidates(&normalized);
+    let mut last_error = None;
+
+    for candidate in candidates {
+        match workspace.resolve_path(&candidate) {
+            Ok(resolved) => {
+                if resolved.is_file() {
+                    return Ok(resolved);
+                }
+                if resolved.is_dir() {
+                    if let Some(found) = find_index_file(&resolved) {
+                        return Ok(found);
+                    }
+                    last_error = Some("Path is a directory".to_string());
+                } else {
+                    last_error = Some("Path is not a file".to_string());
+                }
+            }
+            Err(err) => last_error = Some(err),
+        }
+    }
+
+    if let Some(found) = resolve_by_stem(workspace, &normalized) {
+        return Ok(found);
+    }
+
+    Err(last_error.unwrap_or_else(|| "Path not found".to_string()))
+}
+
+fn build_read_candidates(input: &str) -> Vec<String> {
+    let mut candidates = Vec::new();
+    let mut seen = HashSet::new();
+
+    let mut push_candidate = |value: String| {
+        if seen.insert(value.clone()) {
+            candidates.push(value);
+        }
+    };
+
+    push_candidate(input.to_string());
+
+    let path = Path::new(input);
+    if path.file_name().is_none() {
+        return candidates;
+    }
+
+    if let Some(ext) = path.extension().and_then(|value| value.to_str()) {
+        for alt in READ_FALLBACK_EXTS {
+            if ext.eq_ignore_ascii_case(alt) {
+                continue;
+            }
+            let mut alt_path = path.to_path_buf();
+            alt_path.set_extension(alt);
+            push_candidate(alt_path.to_string_lossy().to_string());
+        }
+    } else {
+        for alt in READ_FALLBACK_EXTS {
+            let mut alt_path = path.to_path_buf();
+            alt_path.set_extension(alt);
+            push_candidate(alt_path.to_string_lossy().to_string());
+        }
+    }
+
+    candidates
+}
+
+fn find_index_file(dir: &Path) -> Option<PathBuf> {
+    for ext in READ_FALLBACK_EXTS {
+        let candidate = dir.join(format!("index.{}", ext));
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
+fn resolve_by_stem(workspace: &WorkspaceState, input: &str) -> Option<PathBuf> {
+    let path = Path::new(input);
+    let stem = path.file_stem()?.to_string_lossy().to_string();
+    let parent = path.parent();
+    let parent_resolved = match parent {
+        None => workspace.root(),
+        Some(value) if value.as_os_str().is_empty() => workspace.root(),
+        Some(value) => workspace.resolve_path(&value.to_string_lossy()).ok()?,
+    };
+
+    if !parent_resolved.is_dir() {
+        return None;
+    }
+
+    let mut matches: Vec<PathBuf> = Vec::new();
+    let entries = fs::read_dir(parent_resolved).ok()?;
+    for entry in entries.flatten() {
+        let entry_path = entry.path();
+        if !entry_path.is_file() {
+            continue;
+        }
+        let entry_stem = entry_path.file_stem().and_then(|value| value.to_str());
+        if entry_stem
+            .map(|value| value.eq_ignore_ascii_case(&stem))
+            .unwrap_or(false)
+        {
+            matches.push(entry_path);
+        }
+    }
+
+    if matches.is_empty() {
+        return None;
+    }
+
+    matches.sort_by_key(|path| {
+        path.extension()
+            .and_then(|value| value.to_str())
+            .and_then(|ext| {
+                READ_FALLBACK_EXTS
+                    .iter()
+                    .position(|candidate| ext.eq_ignore_ascii_case(candidate))
+            })
+            .unwrap_or(usize::MAX)
+    });
+
+    matches.into_iter().next()
+}
+
 fn resolve_candidate(root: &Path, input: &str) -> PathBuf {
     let normalized = normalize_path_input(input);
     let path = Path::new(&normalized);
@@ -90,6 +229,16 @@ fn resolve_candidate(root: &Path, input: &str) -> PathBuf {
 fn ensure_within_root(root: &Path, candidate: &Path) -> Result<(), String> {
     let canonical_root = canonicalize_or(root.to_path_buf());
     if candidate.starts_with(&canonical_root) {
+        Ok(())
+    } else {
+        Err("Path escapes workspace root".to_string())
+    }
+}
+
+fn ensure_within_root_lexical(root: &Path, candidate: &Path) -> Result<(), String> {
+    let root_compare = normalize_path_for_compare(root);
+    let candidate_compare = normalize_path_for_compare(candidate);
+    if candidate_compare.starts_with(&root_compare) {
         Ok(())
     } else {
         Err("Path escapes workspace root".to_string())
@@ -112,6 +261,53 @@ fn normalize_path_input(input: &str) -> String {
     #[cfg(not(windows))]
     let normalized = unquoted.to_string();
     normalized
+}
+
+fn normalize_path_for_compare(path: &Path) -> PathBuf {
+    let raw = path.to_string_lossy().to_string();
+    #[cfg(windows)]
+    let normalized = strip_windows_namespace_prefix(&raw);
+    #[cfg(not(windows))]
+    let normalized = raw;
+    lexical_normalize(Path::new(&normalized))
+}
+
+fn lexical_normalize(path: &Path) -> PathBuf {
+    let mut prefix: Option<std::ffi::OsString> = None;
+    let mut has_root = false;
+    let mut parts: Vec<std::ffi::OsString> = Vec::new();
+
+    for component in path.components() {
+        match component {
+            Component::Prefix(prefix_component) => {
+                prefix = Some(prefix_component.as_os_str().to_owned());
+            }
+            Component::RootDir => {
+                has_root = true;
+            }
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if !parts.is_empty() {
+                    parts.pop();
+                }
+            }
+            Component::Normal(value) => {
+                parts.push(value.to_owned());
+            }
+        }
+    }
+
+    let mut result = PathBuf::new();
+    if let Some(prefix) = prefix {
+        result.push(prefix);
+    }
+    if has_root {
+        result.push(Path::new(std::path::MAIN_SEPARATOR_STR));
+    }
+    for part in parts {
+        result.push(part);
+    }
+    result
 }
 
 fn strip_wrapping_quotes(input: &str) -> &str {

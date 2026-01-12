@@ -1,8 +1,10 @@
 use serde::{Deserialize, Serialize};
+use std::env;
 use std::fs::{self, File};
 use std::io::Read;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
+use uuid::Uuid;
 use tauri::{AppHandle, State};
 
 mod services;
@@ -17,6 +19,7 @@ use services::kernel::{
     KernelManager, KernelPlanStatusRequest, KernelPlanUpdateRequest, KernelStartRequest,
     KernelUserInputRequest, RunState,
 };
+use services::judge::JudgeRule;
 use services::llm::LlmProfile;
 use services::pty::{
     TerminalCreateRequest, TerminalExecRequest, TerminalKillRequest, TerminalManager,
@@ -27,7 +30,9 @@ use services::tools::{
     max_read_bytes, read_file, run_command, search, write_file, CommandRequest, ReadFileRequest,
     SearchMatch, SearchRequest, ToolResult, WriteFileRequest,
 };
-use services::workspace::{default_workspace_root, display_path, WorkspaceState};
+use services::workspace::{
+    default_workspace_root, display_path, resolve_read_path_with_fallback, WorkspaceState,
+};
 
 #[derive(Clone)]
 struct AppState {
@@ -36,6 +41,53 @@ struct AppState {
     audit: AuditLog,
     agent: AgentManager,
     kernel: KernelManager,
+    settings_path: PathBuf,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TaskBudget {
+    max_iterations: Option<u32>,
+    max_tool_calls: Option<u32>,
+    max_wall_time_ms: Option<u64>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TaskRiskPolicy {
+    allow_network: bool,
+    command_policy: String,
+    path_policy: String,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TaskConfig {
+    task_id: String,
+    workspace: String,
+    goal: String,
+    completion: Vec<String>,
+    budget: TaskBudget,
+    risk_policy: TaskRiskPolicy,
+    autonomy: String,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TaskPointer {
+    task_id: String,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkspaceSettings {
+    last_workspace: String,
+}
+
+#[derive(Deserialize)]
+struct JudgeRulesRequest {
+    task_id: String,
+    rules: Vec<JudgeRule>,
 }
 
 #[derive(Deserialize)]
@@ -61,7 +113,9 @@ fn get_workspace_root(state: State<AppState>) -> Result<String, String> {
 fn set_workspace_root(state: State<AppState>, root: String) -> Result<String, String> {
     let resolved = state.workspace.set_root(&root)?;
     state.kernel.update_workspace_root(resolved.clone());
-    Ok(display_path(&resolved))
+    let display = display_path(&resolved);
+    save_workspace_settings(&state.settings_path, &display)?;
+    Ok(display)
 }
 
 #[tauri::command]
@@ -152,7 +206,7 @@ fn tool_run_command(state: State<AppState>, request: CommandRequest) -> Result<T
 
 #[tauri::command]
 fn fs_read_file(state: State<AppState>, request: ReadFileRequest) -> Result<ToolResult, String> {
-    let path = state.workspace.resolve_path(&request.path)?;
+    let path = resolve_read_path_with_fallback(&state.workspace, &request.path)?;
     let max_bytes = max_read_bytes();
     let file = File::open(&path).map_err(|e| e.to_string())?;
     let metadata = file.metadata().map_err(|e| e.to_string())?;
@@ -176,39 +230,23 @@ fn fs_write_file(state: State<AppState>, request: WriteFileRequest) -> Result<To
 
 #[tauri::command]
 fn fs_search(state: State<AppState>, request: SearchRequest) -> Result<ToolResult, String> {
-    let mut cmd = Command::new("rg");
-    cmd.arg("--json");
+    let trimmed = request.pattern.trim();
+    let (paths, mut globs) = resolve_search_targets(&state.workspace, &request.paths);
     if let Some(glob) = &request.glob {
-        cmd.arg("--glob").arg(glob);
+        globs.push(glob.clone());
     }
 
-    if request.pattern.starts_with("*") {
-        cmd.arg("--fixed-strings");
-    }
-    cmd.arg(&request.pattern);
-
-    let paths = if let Some(paths) = &request.paths {
-        let mut resolved = Vec::new();
-        for path in paths {
-            resolved.push(state.workspace.resolve_path(path)?);
-        }
-        resolved
-    } else {
-        vec![state.workspace.root()]
-    };
-
-    for path in &paths {
-        cmd.arg(path);
+    if trimmed == "*" {
+        let output = run_rg_files(&paths, &globs)?;
+        let max_results = request.max_results.unwrap_or(200);
+        let matches = parse_rg_files(&output, max_results);
+        return Ok(search(request, matches, &state.audit));
     }
 
-    let output = cmd.output().map_err(|e| e.to_string())?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(stderr.trim().to_string());
-    }
-
+    let (pattern, force_fixed) = normalize_search_pattern(trimmed);
+    let output = run_rg_search(&pattern, &paths, &globs, force_fixed)?;
     let max_results = request.max_results.unwrap_or(200);
-    let matches = parse_rg_json(&output.stdout, max_results);
+    let matches = parse_rg_json(&output, max_results);
     Ok(search(request, matches, &state.audit))
 }
 
@@ -398,6 +436,16 @@ fn kernel_resume(app: AppHandle, state: State<AppState>) -> Result<RunState, Str
 }
 
 #[tauri::command]
+fn kernel_stop(app: AppHandle, state: State<AppState>) -> Result<RunState, String> {
+    state.kernel.stop(&app)
+}
+
+#[tauri::command]
+fn kernel_continue(app: AppHandle, state: State<AppState>) -> Result<RunState, String> {
+    state.kernel.continue_run(&app)
+}
+
+#[tauri::command]
 fn kernel_user_input(
     app: AppHandle,
     state: State<AppState>,
@@ -435,6 +483,89 @@ fn llm_save_profile(
     profile: LlmProfile,
 ) -> Result<LlmProfile, String> {
     state.kernel.save_llm_profile(profile)
+}
+
+#[tauri::command]
+fn task_get_active(state: State<AppState>) -> Result<Option<TaskConfig>, String> {
+    let root = state.workspace.root();
+    let pointer_path = task_base_dir(&root).join("active.json");
+    if !pointer_path.exists() {
+        return Ok(None);
+    }
+    let pointer: TaskPointer = read_json(&pointer_path)?;
+    let config_path = task_dir(&root, &pointer.task_id).join("task.json");
+    if !config_path.exists() {
+        return Ok(None);
+    }
+    let config: TaskConfig = read_json(&config_path)?;
+    let rules_path = task_dir(&root, &pointer.task_id).join("judge.json");
+    if rules_path.exists() {
+        if let Ok(rules) = read_json(&rules_path) {
+            let _ = state.kernel.set_judge_rules(rules);
+        }
+    }
+    Ok(Some(config))
+}
+
+#[tauri::command]
+fn task_save_config(state: State<AppState>, request: TaskConfig) -> Result<TaskConfig, String> {
+    let root = state.workspace.root();
+    let task_id = if request.task_id.trim().is_empty() {
+        Uuid::new_v4().to_string()
+    } else {
+        request.task_id.trim().to_string()
+    };
+    let workspace = if request.workspace.trim().is_empty() {
+        display_path(&root)
+    } else {
+        request.workspace.trim().to_string()
+    };
+    let config = TaskConfig {
+        task_id: task_id.clone(),
+        workspace,
+        goal: request.goal,
+        completion: request.completion,
+        budget: request.budget,
+        risk_policy: request.risk_policy,
+        autonomy: request.autonomy,
+    };
+    let config_path = task_dir(&root, &task_id).join("task.json");
+    write_json(&config_path, &config)?;
+    let pointer = TaskPointer {
+        task_id: task_id.clone(),
+    };
+    let pointer_path = task_base_dir(&root).join("active.json");
+    write_json(&pointer_path, &pointer)?;
+    let _ = state.kernel.set_task_id(Some(task_id));
+    Ok(config)
+}
+
+#[tauri::command]
+fn judge_get_rules(state: State<AppState>, task_id: String) -> Result<Vec<JudgeRule>, String> {
+    if task_id.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+    let root = state.workspace.root();
+    let rules_path = task_dir(&root, &task_id).join("judge.json");
+    if !rules_path.exists() {
+        return Ok(Vec::new());
+    }
+    read_json(&rules_path)
+}
+
+#[tauri::command]
+fn judge_set_rules(
+    state: State<AppState>,
+    request: JudgeRulesRequest,
+) -> Result<Vec<JudgeRule>, String> {
+    if request.task_id.trim().is_empty() {
+        return Err("task_id is required".to_string());
+    }
+    let root = state.workspace.root();
+    let rules_path = task_dir(&root, &request.task_id).join("judge.json");
+    write_json(&rules_path, &request.rules)?;
+    let _ = state.kernel.set_judge_rules(request.rules.clone());
+    Ok(request.rules)
 }
 
 fn parse_rg_json(output: &[u8], max_results: usize) -> Vec<SearchMatch> {
@@ -475,6 +606,155 @@ fn parse_rg_json(output: &[u8], max_results: usize) -> Vec<SearchMatch> {
         });
     }
     matches
+}
+
+fn parse_rg_files(output: &[u8], max_results: usize) -> Vec<SearchMatch> {
+    let mut matches = Vec::new();
+    let stdout = String::from_utf8_lossy(output);
+    for line in stdout.lines() {
+        if matches.len() >= max_results {
+            break;
+        }
+        let path = line.trim();
+        if path.is_empty() {
+            continue;
+        }
+        matches.push(SearchMatch {
+            path: path.to_string(),
+            line: 0,
+            column: 0,
+            text: path.to_string(),
+        });
+    }
+    matches
+}
+
+fn normalize_search_pattern(pattern: &str) -> (String, bool) {
+    let trimmed = pattern.trim();
+    if trimmed.is_empty() || trimmed == "*" {
+        return (".".to_string(), false);
+    }
+    let force_fixed = trimmed.starts_with('*') || trimmed.starts_with('?');
+    (trimmed.to_string(), force_fixed)
+}
+
+fn resolve_search_targets(
+    workspace: &WorkspaceState,
+    paths: &Option<Vec<String>>,
+) -> (Vec<PathBuf>, Vec<String>) {
+    let mut resolved = Vec::new();
+    let mut globs = Vec::new();
+    if let Some(paths) = paths {
+        for path in paths {
+            if is_glob_like(path) {
+                globs.push(path.to_string());
+                continue;
+            }
+            if let Ok(found) = workspace.resolve_path(path) {
+                resolved.push(found);
+            }
+        }
+    }
+    if resolved.is_empty() {
+        resolved.push(workspace.root());
+    }
+    (resolved, globs)
+}
+
+fn is_glob_like(value: &str) -> bool {
+    value.contains('*') || value.contains('?') || value.contains('[')
+}
+
+fn run_rg_search(
+    pattern: &str,
+    paths: &[PathBuf],
+    globs: &[String],
+    force_fixed: bool,
+) -> Result<Vec<u8>, String> {
+    let output = run_rg_search_inner(pattern, paths, globs, force_fixed)?;
+    if is_rg_ok(&output) {
+        return Ok(output.stdout);
+    }
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    if !force_fixed && is_rg_regex_error(&stderr) {
+        let retry = run_rg_search_inner(pattern, paths, globs, true)?;
+        if is_rg_ok(&retry) {
+            return Ok(retry.stdout);
+        }
+        let retry_err = String::from_utf8_lossy(&retry.stderr);
+        return Err(retry_err.trim().to_string());
+    }
+    Err(stderr.trim().to_string())
+}
+
+fn run_rg_files(paths: &[PathBuf], globs: &[String]) -> Result<Vec<u8>, String> {
+    let mut cmd = Command::new("rg");
+    cmd.arg("--files");
+    for glob in globs {
+        cmd.arg("--glob").arg(glob);
+    }
+    for path in paths {
+        cmd.arg(path);
+    }
+    let output = cmd.output().map_err(|e| e.to_string())?;
+    if is_rg_ok(&output) {
+        return Ok(output.stdout);
+    }
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    Err(stderr.trim().to_string())
+}
+
+fn run_rg_search_inner(
+    pattern: &str,
+    paths: &[PathBuf],
+    globs: &[String],
+    force_fixed: bool,
+) -> Result<std::process::Output, String> {
+    let mut cmd = Command::new("rg");
+    cmd.arg("--json");
+    for glob in globs {
+        cmd.arg("--glob").arg(glob);
+    }
+    if force_fixed {
+        cmd.arg("--fixed-strings");
+    }
+    cmd.arg(pattern);
+    for path in paths {
+        cmd.arg(path);
+    }
+    cmd.output().map_err(|e| e.to_string())
+}
+
+fn is_rg_ok(output: &std::process::Output) -> bool {
+    output.status.success() || output.status.code() == Some(1)
+}
+
+fn is_rg_regex_error(stderr: &str) -> bool {
+    let lowered = stderr.to_lowercase();
+    lowered.contains("regex parse error") || lowered.contains("repetition operator")
+}
+
+fn task_base_dir(root: &Path) -> std::path::PathBuf {
+    root.join(".taurihands").join("tasks")
+}
+
+fn task_dir(root: &Path, task_id: &str) -> std::path::PathBuf {
+    task_base_dir(root).join(task_id)
+}
+
+fn write_json<T: Serialize>(path: &Path, value: &T) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    let data = serde_json::to_vec_pretty(value).map_err(|e| e.to_string())?;
+    fs::write(path, data).map_err(|e| e.to_string())
+}
+
+fn read_json<T: for<'de> Deserialize<'de>>(path: &Path) -> Result<T, String> {
+    let mut file = File::open(path).map_err(|e| e.to_string())?;
+    let mut buffer = Vec::new();
+    file.read_to_end(&mut buffer).map_err(|e| e.to_string())?;
+    serde_json::from_slice(&buffer).map_err(|e| e.to_string())
 }
 
 fn list_tree(
@@ -557,13 +837,87 @@ fn is_ignored_dir(name: &str) -> bool {
             | "node_modules"
             | "dist"
             | "target"
-            | "out"
-    )
+              | "out"
+      )
+  }
+
+fn workspace_settings_path(identifier: &str, fallback_root: &Path) -> PathBuf {
+    if let Some(base) = app_data_root(identifier) {
+        return base.join("settings.json");
+    }
+    fallback_root
+        .join(".taurihands")
+        .join("app-settings.json")
+}
+
+fn app_data_root(identifier: &str) -> Option<PathBuf> {
+    #[cfg(windows)]
+    {
+        return env::var("APPDATA")
+            .ok()
+            .map(PathBuf::from)
+            .map(|base| base.join(identifier));
+    }
+    #[cfg(target_os = "macos")]
+    {
+        return env::var("HOME")
+            .ok()
+            .map(PathBuf::from)
+            .map(|home| home.join("Library").join("Application Support").join(identifier));
+    }
+    #[cfg(all(not(windows), not(target_os = "macos")))]
+    {
+        if let Ok(dir) = env::var("XDG_DATA_HOME") {
+            return Some(PathBuf::from(dir).join(identifier));
+        }
+        return env::var("HOME")
+            .ok()
+            .map(PathBuf::from)
+            .map(|home| home.join(".local").join("share").join(identifier));
+    }
+}
+
+fn load_workspace_settings(path: &Path) -> Option<WorkspaceSettings> {
+    let raw = fs::read_to_string(path).ok()?;
+    serde_json::from_str(&raw).ok()
+}
+
+fn save_workspace_settings(path: &Path, workspace: &str) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    let settings = WorkspaceSettings {
+        last_workspace: workspace.to_string(),
+    };
+    let data = serde_json::to_vec_pretty(&settings).map_err(|e| e.to_string())?;
+    fs::write(path, data).map_err(|e| e.to_string())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let workspace_root = default_workspace_root();
+    let context = tauri::generate_context!();
+    let fallback_root = default_workspace_root();
+    let identifier = context.config().identifier.clone();
+    let settings_path = workspace_settings_path(&identifier, &fallback_root);
+    let workspace_root = load_workspace_settings(&settings_path)
+        .and_then(|settings| {
+            let candidate = PathBuf::from(settings.last_workspace);
+            if candidate.is_dir() {
+                Some(candidate)
+            } else {
+                None
+            }
+        })
+        .unwrap_or(fallback_root);
+    let llm_root = app_data_root(&identifier).unwrap_or_else(|| workspace_root.clone());
+    let llm_store_path = llm_root.join(".taurihands").join("llm.json");
+    let legacy_llm_path = workspace_root.join(".taurihands").join("llm.json");
+    if !llm_store_path.exists() && legacy_llm_path.exists() {
+        if let Some(parent) = llm_store_path.parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+        let _ = fs::copy(&legacy_llm_path, &llm_store_path);
+    }
     let audit = AuditLog::new(workspace_root.join(".taurihands").join("audit.log"));
     let terminal = TerminalManager::new(workspace_root.join(".taurihands").join("terminal"));
     let workspace = WorkspaceState::new(workspace_root);
@@ -573,6 +927,7 @@ pub fn run() {
         terminal.clone(),
         workspace.clone(),
         audit.clone(),
+        llm_root,
     );
 
     tauri::Builder::default()
@@ -584,6 +939,7 @@ pub fn run() {
             audit,
             agent,
             kernel,
+            settings_path,
         })
         .invoke_handler(tauri::generate_handler![
             get_workspace_root,
@@ -622,12 +978,18 @@ pub fn run() {
             kernel_start,
             kernel_pause,
             kernel_resume,
+            kernel_stop,
+            kernel_continue,
             kernel_user_input,
             kernel_plan_update,
             kernel_plan_status,
             llm_get_profile,
-            llm_save_profile
+            llm_save_profile,
+            task_get_active,
+            task_save_config,
+            judge_get_rules,
+            judge_set_rules
         ])
-        .run(tauri::generate_context!())
+        .run(context)
         .expect("error while running tauri application");
 }

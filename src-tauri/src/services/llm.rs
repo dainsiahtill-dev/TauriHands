@@ -1,3 +1,4 @@
+use futures_util::StreamExt;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -143,16 +144,56 @@ pub async fn request_completion(
         return Err("API key is required".to_string());
     }
 
-    let client = Client::builder()
-        .timeout(Duration::from_secs(90))
-        .build()
-        .map_err(|e| e.to_string())?;
+    let client = build_http_client()?;
 
     if provider == "anthropic" {
         return request_anthropic(&client, profile, &base_url, system_prompt, user_prompt).await;
     }
 
     request_openai_compatible(&client, profile, &base_url, system_prompt, user_prompt).await
+}
+
+pub async fn request_completion_stream<F>(
+    profile: &LlmProfile,
+    system_prompt: &str,
+    user_prompt: &str,
+    mut on_chunk: F,
+) -> Result<String, String>
+where
+    F: FnMut(String),
+{
+    let provider = profile.provider.to_lowercase();
+    let base_url = resolve_base_url(profile);
+    if base_url.is_empty() {
+        return Err("Base URL is required".to_string());
+    }
+    if provider != "local" && profile.api_key.trim().is_empty() {
+        return Err("API key is required".to_string());
+    }
+
+    let client = build_http_client()?;
+
+    if provider == "anthropic" {
+        let content = request_anthropic(&client, profile, &base_url, system_prompt, user_prompt).await?;
+        on_chunk(content.clone());
+        return Ok(content);
+    }
+
+    if profile.stream_responses {
+        return request_openai_compatible_stream(
+            &client,
+            profile,
+            &base_url,
+            system_prompt,
+            user_prompt,
+            &mut on_chunk,
+        )
+        .await;
+    }
+
+    let content = request_openai_compatible(&client, profile, &base_url, system_prompt, user_prompt).await?;
+    on_chunk(content.clone());
+    Ok(content)
 }
 
 fn resolve_base_url(profile: &LlmProfile) -> String {
@@ -173,6 +214,137 @@ fn openai_chat_url(base_url: &str) -> String {
     } else {
         format!("{}/chat/completions", base_url.trim_end_matches('/'))
     }
+}
+
+async fn request_openai_compatible_stream<F>(
+    client: &Client,
+    profile: &LlmProfile,
+    base_url: &str,
+    system_prompt: &str,
+    user_prompt: &str,
+    on_chunk: &mut F,
+) -> Result<String, String>
+where
+    F: FnMut(String),
+{
+    let url = openai_chat_url(base_url);
+    let mut payload = serde_json::json!({
+        "model": profile.model,
+        "messages": [
+            { "role": "system", "content": system_prompt },
+            { "role": "user", "content": user_prompt }
+        ],
+        "temperature": profile.temperature,
+        "top_p": profile.top_p,
+        "stream": true
+    });
+    if use_max_completion_tokens(profile) {
+        payload["max_completion_tokens"] = serde_json::json!(profile.max_tokens);
+    } else {
+        payload["max_tokens"] = serde_json::json!(profile.max_tokens);
+    }
+
+    let mut request = client.post(&url).json(&payload);
+    let provider = profile.provider.to_lowercase();
+    if provider == "azure" {
+        request = request.header("api-key", profile.api_key.trim());
+    } else if !profile.api_key.trim().is_empty() {
+        request = request.bearer_auth(profile.api_key.trim());
+    }
+
+    let response = request
+        .send()
+        .await
+        .map_err(|e| format_reqwest_error("openai.stream", &url, &e))?;
+    let status = response.status();
+    if !status.is_success() {
+        let body = response.text().await.unwrap_or_default();
+        if let Ok(value) = serde_json::from_str::<serde_json::Value>(&body) {
+            let message = value
+                .get("error")
+                .and_then(|err| err.get("message"))
+                .and_then(|msg| msg.as_str())
+                .unwrap_or("LLM request failed");
+            return Err(format!("{} (HTTP {})", message, status.as_u16()));
+        }
+        return Err(format!("LLM request failed (HTTP {})", status.as_u16()));
+    }
+
+    let mut full = String::new();
+    let mut buffer = String::new();
+    let mut stream = response.bytes_stream();
+    'outer: while let Some(item) = stream.next().await {
+        let chunk = item.map_err(|e| e.to_string())?;
+        let text = String::from_utf8_lossy(&chunk);
+        buffer.push_str(&text);
+        while let Some(pos) = buffer.find('\n') {
+            let mut line = buffer[..pos].to_string();
+            buffer = buffer[pos + 1..].to_string();
+            line = line.trim_end_matches('\r').to_string();
+            if line.is_empty() || !line.starts_with("data:") {
+                continue;
+            }
+            let data = line.trim_start_matches("data:").trim();
+            if data == "[DONE]" {
+                break 'outer;
+            }
+            if data.is_empty() {
+                continue;
+            }
+            let value: serde_json::Value = match serde_json::from_str(data) {
+                Ok(value) => value,
+                Err(_) => continue,
+            };
+            let delta = &value["choices"][0]["delta"];
+            if let Some(content) = delta.get("content").and_then(|v| v.as_str()) {
+                if !content.is_empty() {
+                    full.push_str(content);
+                    on_chunk(content.to_string());
+                }
+                continue;
+            }
+            if let Some(text) = value["choices"][0]["text"].as_str() {
+                if !text.is_empty() {
+                    full.push_str(text);
+                    on_chunk(text.to_string());
+                }
+            }
+        }
+    }
+
+    if !buffer.is_empty() {
+        for line in buffer.lines() {
+            let line = line.trim_end_matches('\r');
+            if !line.starts_with("data:") {
+                continue;
+            }
+            let data = line.trim_start_matches("data:").trim();
+            if data == "[DONE]" || data.is_empty() {
+                continue;
+            }
+            if let Ok(value) = serde_json::from_str::<serde_json::Value>(data) {
+                let delta = &value["choices"][0]["delta"];
+                if let Some(content) = delta.get("content").and_then(|v| v.as_str()) {
+                    if !content.is_empty() {
+                        full.push_str(content);
+                        on_chunk(content.to_string());
+                    }
+                    continue;
+                }
+                if let Some(text) = value["choices"][0]["text"].as_str() {
+                    if !text.is_empty() {
+                        full.push_str(text);
+                        on_chunk(text.to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    if full.trim().is_empty() {
+        return Err("LLM response is empty".to_string());
+    }
+    Ok(full)
 }
 
 async fn request_openai_compatible(
@@ -198,7 +370,7 @@ async fn request_openai_compatible(
         payload["max_tokens"] = serde_json::json!(profile.max_tokens);
     }
 
-    let mut request = client.post(url).json(&payload);
+    let mut request = client.post(&url).json(&payload);
     let provider = profile.provider.to_lowercase();
     if provider == "azure" {
         request = request.header("api-key", profile.api_key.trim());
@@ -206,9 +378,23 @@ async fn request_openai_compatible(
         request = request.bearer_auth(profile.api_key.trim());
     }
 
-    let response = request.send().await.map_err(|e| e.to_string())?;
+    let response = request
+        .send()
+        .await
+        .map_err(|e| format_reqwest_error("openai", &url, &e))?;
     let status = response.status();
-    let value: serde_json::Value = response.json().await.map_err(|e| e.to_string())?;
+    let body = response
+        .text()
+        .await
+        .map_err(|e| format_reqwest_error("openai.read", &url, &e))?;
+    let value: serde_json::Value = serde_json::from_str(&body).map_err(|e| {
+        format!(
+            "Invalid JSON response (HTTP {}). error=\"{}\" body_preview=\"{}\"",
+            status.as_u16(),
+            e,
+            truncate_for_error(&body, 800)
+        )
+    })?;
     if !status.is_success() {
         let message = value
             .get("error")
@@ -238,6 +424,61 @@ fn use_max_completion_tokens(profile: &LlmProfile) -> bool {
     model.starts_with("gpt-5") || model.starts_with("o1") || model.starts_with("o3")
 }
 
+fn build_http_client() -> Result<Client, String> {
+    let builder = Client::builder().timeout(Duration::from_secs(90));
+    #[cfg(windows)]
+    let builder = builder.use_native_tls();
+    #[cfg(not(windows))]
+    let builder = builder.use_rustls_tls();
+    builder.build().map_err(|e| e.to_string())
+}
+
+fn format_reqwest_error(context: &str, url: &str, err: &reqwest::Error) -> String {
+    let mut details = Vec::new();
+    details.push(format!("Request failed ({})", context));
+    details.push(format!("url: {}", url));
+    details.push(format!("error: {}", err));
+    if err.is_timeout() {
+        details.push("reason: timeout".to_string());
+    }
+    if err.is_connect() {
+        details.push("reason: connect".to_string());
+    }
+    if err.is_request() {
+        details.push("reason: request".to_string());
+    }
+    if err.is_body() {
+        details.push("reason: body".to_string());
+    }
+    if err.is_decode() {
+        details.push("reason: decode".to_string());
+    }
+    if err.is_redirect() {
+        details.push("reason: redirect".to_string());
+    }
+    if err.is_status() {
+        details.push("reason: status".to_string());
+    }
+    if let Some(status) = err.status() {
+        details.push(format!("http_status: {}", status.as_u16()));
+    }
+    if let Some(hint_url) = err.url() {
+        details.push(format!("url_hint: {}", hint_url));
+    }
+    details.join("\n")
+}
+
+fn truncate_for_error(value: &str, max_len: usize) -> String {
+    if value.len() <= max_len {
+        return value.to_string();
+    }
+    let mut end = max_len;
+    while end > 0 && !value.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}...", &value[..end])
+}
+
 async fn request_anthropic(
     client: &Client,
     profile: &LlmProfile,
@@ -262,15 +503,26 @@ async fn request_anthropic(
     });
 
     let response = client
-        .post(url)
+        .post(url.clone())
         .header("x-api-key", profile.api_key.trim())
         .header("anthropic-version", "2023-06-01")
         .json(&payload)
         .send()
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| format_reqwest_error("anthropic", &url, &e))?;
     let status = response.status();
-    let value: serde_json::Value = response.json().await.map_err(|e| e.to_string())?;
+    let body = response
+        .text()
+        .await
+        .map_err(|e| format_reqwest_error("anthropic.read", &url, &e))?;
+    let value: serde_json::Value = serde_json::from_str(&body).map_err(|e| {
+        format!(
+            "Invalid JSON response (HTTP {}). error=\"{}\" body_preview=\"{}\"",
+            status.as_u16(),
+            e,
+            truncate_for_error(&body, 800)
+        )
+    })?;
     if !status.is_success() {
         let message = value
             .get("error")

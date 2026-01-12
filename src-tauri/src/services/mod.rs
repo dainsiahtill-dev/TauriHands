@@ -1,7 +1,9 @@
 pub mod audit;
 pub mod agent;
+pub mod judge;
 pub mod llm;
 pub mod kernel;
 pub mod pty;
+pub mod tool_dispatcher;
 pub mod tools;
 pub mod workspace;
