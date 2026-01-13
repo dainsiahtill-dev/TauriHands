@@ -12,7 +12,7 @@ use uuid::Uuid;
 
 use crate::services::audit::now_ms;
 use crate::services::audit::AuditLog;
-use crate::services::judge::{JudgeContext, JudgeEngine, JudgeRule};
+use crate::services::judge::{JudgeContext, JudgeEngine, JudgeRule, JudgeRuleOutcome};
 use crate::services::llm::{request_completion, request_completion_stream, LlmProfile, LlmStore};
 use crate::services::pty::{TerminalExecRequest, TerminalManager};
 use crate::services::tool_dispatcher::ToolDispatcher as ToolDispatcherTrait;
@@ -1040,7 +1040,36 @@ impl KernelManager {
                 "AgentActionProposed",
                 &serde_json::json!({ "actions": actions }),
             );
-            for action in actions {
+            let exec_indices: Vec<usize> = actions
+                .iter()
+                .enumerate()
+                .filter_map(|(index, action)| {
+                    if is_execution_action(action) {
+                        Some(index)
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            let exec_step_id = if exec_indices.is_empty() {
+                None
+            } else {
+                snapshot
+                    .plan
+                    .as_ref()
+                    .and_then(|plan| select_next_plan_step(plan))
+            };
+            if let Some(step_id) = &exec_step_id {
+                let _ = self.update_plan_status(
+                    &app,
+                    KernelPlanStatusRequest {
+                        id: step_id.clone(),
+                        status: "running".to_string(),
+                    },
+                );
+            }
+            let last_exec_index = exec_indices.last().copied();
+            for (index, action) in actions.into_iter().enumerate() {
                 let current_state = match self.snapshot_agent_state() {
                     Ok(state) => state,
                     Err(err) => {
@@ -1121,6 +1150,29 @@ impl KernelManager {
                 self.events
                     .emit(&app, "Observation", &serde_json::json!({ "observation": observation }));
                 let _ = self.apply_observation(&app, &action, &observation);
+                if let Some(step_id) = &exec_step_id {
+                    if is_execution_action(&action) {
+                        if observation.ok {
+                            if Some(index) == last_exec_index {
+                                let _ = self.update_plan_status(
+                                    &app,
+                                    KernelPlanStatusRequest {
+                                        id: step_id.clone(),
+                                        status: "done".to_string(),
+                                    },
+                                );
+                            }
+                        } else {
+                            let _ = self.update_plan_status(
+                                &app,
+                                KernelPlanStatusRequest {
+                                    id: step_id.clone(),
+                                    status: "error".to_string(),
+                                },
+                            );
+                        }
+                    }
+                }
                 if observation.requires_user {
                     self.emit_state(&app, "awaiting_user");
                     break 'run;
@@ -1131,21 +1183,278 @@ impl KernelManager {
             });
             self.emit_state(&app, "step_complete");
             if let Ok(snapshot) = self.snapshot_agent_state() {
-                let context = JudgeContext {
-                    iteration: snapshot.budget.used_steps,
-                    last_error: snapshot.last_error.clone(),
-                };
-                if let Ok(judge) = self.judge.lock() {
-                    let result = judge.evaluate(&context);
-                    self.events.emit(
-                        &app,
-                        "JudgeResult",
-                        &serde_json::json!({ "result": result }),
-                    );
+                match self.evaluate_judge(&app, &snapshot) {
+                    Ok(should_stop) => {
+                        if should_stop {
+                            break 'run;
+                        }
+                    }
+                    Err(err) => {
+                        self.events.emit(&app, "Error", &serde_json::json!({ "message": err }));
+                    }
                 }
             }
         }
         self.running.store(false, Ordering::SeqCst);
+    }
+
+    fn evaluate_judge(&self, app: &AppHandle, snapshot: &RunState) -> Result<bool, String> {
+        let rules = self.get_judge_rules().unwrap_or_default();
+        let context = JudgeContext {
+            iteration: snapshot.budget.used_steps,
+            last_error: snapshot.last_error.clone(),
+        };
+        let result = JudgeEngine::evaluate_rules(&rules, &context, |rule, ctx| {
+            self.evaluate_judge_rule(app, rule, ctx)
+        });
+        self.events
+            .emit(app, "JudgeResult", &serde_json::json!({ "result": result }));
+        self.apply_judge_result(app, &result)
+    }
+
+    fn apply_judge_result(
+        &self,
+        app: &AppHandle,
+        result: &crate::services::judge::JudgeResult,
+    ) -> Result<bool, String> {
+        match result.status.as_str() {
+            "pass" => {
+                let _ = self.update_state(|state| {
+                    state.agent_state = RunAgentState::Finished;
+                    state.last_error = None;
+                });
+                self.emit_state(app, "judge_pass");
+                Ok(true)
+            }
+            "fail" => {
+                let summary = if result.reasons.is_empty() {
+                    "Judge failed".to_string()
+                } else {
+                    trim_to(&result.reasons.join(" | "), 800)
+                };
+                let _ = self.update_state(|state| {
+                    state.last_error = Some(summary);
+                });
+                self.emit_state(app, "judge_fail");
+                Ok(false)
+            }
+            _ => Ok(false),
+        }
+    }
+
+    fn evaluate_judge_rule(
+        &self,
+        app: &AppHandle,
+        rule: &JudgeRule,
+        context: &JudgeContext,
+    ) -> JudgeRuleOutcome {
+        let rule_type = rule.rule_type.trim().to_lowercase();
+        match rule_type.as_str() {
+            "command" => self.run_judge_command(app, rule, false),
+            "tests" | "tests.run" => self.run_judge_command(app, rule, true),
+            "git_clean" | "git.clean" => self.run_judge_git_clean(app),
+            "no_error" | "last_error" => {
+                if context.last_error.is_some() {
+                    JudgeRuleOutcome::fail("last_error is set")
+                } else {
+                    JudgeRuleOutcome::pass()
+                }
+            }
+            _ => JudgeRuleOutcome::fail(format!("unsupported rule type: {}", rule.rule_type)),
+        }
+    }
+
+    fn run_judge_command(
+        &self,
+        app: &AppHandle,
+        rule: &JudgeRule,
+        use_tests: bool,
+    ) -> JudgeRuleOutcome {
+        let command = match rule.command.as_ref() {
+            Some(items) if !items.is_empty() => items.clone(),
+            _ => return JudgeRuleOutcome::fail("command is required"),
+        };
+        let program = command[0].clone();
+        let args = command[1..].to_vec();
+        let id = make_id("judge");
+        let action = if use_tests {
+            Action::TestsRun {
+                id,
+                program: program.clone(),
+                args: args.clone(),
+            }
+        } else {
+            Action::TerminalRun {
+                id,
+                program: program.clone(),
+                args: args.clone(),
+                cwd: None,
+            }
+        };
+        self.emit_tool_call_started(app, &action);
+        let cwd = self.runtime.workspace.root();
+        let result = run_command(
+            CommandRequest {
+                program,
+                args: Some(args),
+                cwd: Some(cwd.to_string_lossy().to_string()),
+                env: None,
+                timeout_ms: None,
+            },
+            cwd.to_string_lossy().as_ref(),
+            &self.runtime.audit,
+        );
+        match result {
+            Ok(tool_result) => {
+                let outcome = self.evaluate_command_result(rule, &tool_result);
+                let mut on_chunk = |chunk: String| {
+                    self.emit_tool_call_chunk(app, &action, &chunk);
+                };
+                let observation = tool_result_to_observation(tool_result, &mut on_chunk);
+                self.emit_tool_call_finished(app, &action, &observation);
+                outcome
+            }
+            Err(err) => {
+                self.emit_tool_call_failed(app, &action, &err);
+                JudgeRuleOutcome::fail(err)
+            }
+        }
+    }
+
+    fn run_judge_git_clean(&self, app: &AppHandle) -> JudgeRuleOutcome {
+        let id = make_id("judge");
+        let action = Action::GitStatus { id };
+        self.emit_tool_call_started(app, &action);
+        let cwd = self.runtime.workspace.root();
+        let result = run_command(
+            CommandRequest {
+                program: "git".to_string(),
+                args: Some(vec![
+                    "status".to_string(),
+                    "--porcelain=v1".to_string(),
+                    "--untracked-files=all".to_string(),
+                ]),
+                cwd: Some(cwd.to_string_lossy().to_string()),
+                env: None,
+                timeout_ms: None,
+            },
+            cwd.to_string_lossy().as_ref(),
+            &self.runtime.audit,
+        );
+        match result {
+            Ok(tool_result) => {
+                let stdout = tool_result.stdout_excerpt.clone().unwrap_or_default();
+                let dirty = !stdout.trim().is_empty();
+                let mut outcome = if !tool_result.ok {
+                    let code = tool_result
+                        .exit_code
+                        .map(|value| value.to_string())
+                        .unwrap_or_else(|| "unknown".to_string());
+                    JudgeRuleOutcome::fail(format!("git status failed (exit_code: {})", code))
+                } else if dirty {
+                    JudgeRuleOutcome::fail("git status is not clean")
+                } else {
+                    JudgeRuleOutcome::pass()
+                };
+                if !stdout.trim().is_empty() {
+                    outcome
+                        .evidence
+                        .push(format!("status: {}", trim_to(stdout.trim(), 2000)));
+                }
+                let mut on_chunk = |chunk: String| {
+                    self.emit_tool_call_chunk(app, &action, &chunk);
+                };
+                let observation = tool_result_to_observation(tool_result, &mut on_chunk);
+                self.emit_tool_call_finished(app, &action, &observation);
+                outcome
+            }
+            Err(err) => {
+                self.emit_tool_call_failed(app, &action, &err);
+                JudgeRuleOutcome::fail(err)
+            }
+        }
+    }
+
+    fn evaluate_command_result(
+        &self,
+        rule: &JudgeRule,
+        result: &ToolResult,
+    ) -> JudgeRuleOutcome {
+        let mut outcome = if result.ok {
+            JudgeRuleOutcome::pass()
+        } else {
+            let code = result
+                .exit_code
+                .map(|value| value.to_string())
+                .unwrap_or_else(|| "unknown".to_string());
+            JudgeRuleOutcome::fail(format!("command failed (exit_code: {})", code))
+        };
+        let stdout = result.stdout_excerpt.clone().unwrap_or_default();
+        let stderr = result.stderr_excerpt.clone().unwrap_or_default();
+        let combined = format!("{}\n{}", stdout, stderr);
+        if let Some(fail_match) = &rule.fail_match {
+            if !fail_match.trim().is_empty() && combined.contains(fail_match) {
+                outcome = JudgeRuleOutcome::fail(format!("fail_match triggered: {}", fail_match));
+            }
+        }
+        if let Some(success_match) = &rule.success_match {
+            if !success_match.trim().is_empty() && !combined.contains(success_match) {
+                outcome = JudgeRuleOutcome::fail(format!("success_match not found: {}", success_match));
+            }
+        }
+        if !stdout.trim().is_empty() {
+            outcome
+                .evidence
+                .push(format!("stdout: {}", trim_to(stdout.trim(), 2000)));
+        }
+        if !stderr.trim().is_empty() {
+            outcome
+                .evidence
+                .push(format!("stderr: {}", trim_to(stderr.trim(), 2000)));
+        }
+        outcome
+    }
+
+    fn emit_tool_call_started(&self, app: &AppHandle, action: &Action) {
+        self.events
+            .emit(app, "ToolCallStarted", &serde_json::json!({ "action": action }));
+    }
+
+    fn emit_tool_call_chunk(&self, app: &AppHandle, action: &Action, chunk: &str) {
+        if chunk.trim().is_empty() {
+            return;
+        }
+        self.events.emit(
+            app,
+            "ToolCallChunk",
+            &serde_json::json!({ "action_id": action_id(action), "chunk": chunk }),
+        );
+    }
+
+    fn emit_tool_call_finished(&self, app: &AppHandle, action: &Action, observation: &Observation) {
+        self.events.emit(
+            app,
+            "ToolCallFinished",
+            &serde_json::json!({
+                "action": action,
+                "ok": observation.ok,
+                "exit_code": observation.exit_code,
+                "summary": observation.summary,
+            }),
+        );
+    }
+
+    fn emit_tool_call_failed(&self, app: &AppHandle, action: &Action, error: &str) {
+        self.events.emit(
+            app,
+            "ToolCallFinished",
+            &serde_json::json!({
+                "action": action,
+                "ok": false,
+                "exit_code": serde_json::Value::Null,
+                "summary": error,
+            }),
+        );
     }
 
     fn snapshot_agent_state(&self) -> Result<RunState, String> {
@@ -1269,6 +1578,22 @@ fn action_id(action: &Action) -> String {
         | Action::TaskUpdate { id, .. }
         | Action::UserAsk { id, .. } => id.clone(),
     }
+}
+
+fn is_execution_action(action: &Action) -> bool {
+    !matches!(
+        action,
+        Action::PlanUpdate { .. } | Action::TaskUpdate { .. } | Action::UserAsk { .. }
+    )
+}
+
+fn select_next_plan_step(plan: &Plan) -> Option<String> {
+    for step in &plan.steps {
+        if step.status != "done" && step.status != "skipped" {
+            return Some(step.id.clone());
+        }
+    }
+    None
 }
 
 fn tool_result_to_observation(result: ToolResult, on_chunk: &mut dyn FnMut(String)) -> Observation {
@@ -1788,6 +2113,18 @@ fn parse_json_payload(raw: &str) -> Result<serde_json::Value, String> {
     match serde_json::from_str::<serde_json::Value>(&cleaned) {
         Ok(value) => return Ok(value),
         Err(primary_err) => {
+            if let Some(snippet) = extract_balanced_json(&cleaned) {
+                if let Ok(value) = serde_json::from_str::<serde_json::Value>(&snippet) {
+                    return Ok(value);
+                }
+            }
+            if primary_err.is_eof() {
+                if let Some(repaired) = repair_truncated_json(&cleaned) {
+                    if let Ok(value) = serde_json::from_str::<serde_json::Value>(&repaired) {
+                        return Ok(value);
+                    }
+                }
+            }
             if let Some(snippet) = extract_json_snippet(&cleaned) {
                 match serde_json::from_str::<serde_json::Value>(&snippet) {
                     Ok(value) => return Ok(value),
@@ -1845,6 +2182,126 @@ fn extract_json_snippet(raw: &str) -> Option<String> {
         return None;
     }
     Some(raw[start..=end].to_string())
+}
+
+fn extract_balanced_json(raw: &str) -> Option<String> {
+    let start_obj = raw.find('{');
+    let start_arr = raw.find('[');
+    let start = match (start_obj, start_arr) {
+        (Some(obj), Some(arr)) => obj.min(arr),
+        (Some(obj), None) => obj,
+        (None, Some(arr)) => arr,
+        _ => return None,
+    };
+
+    let mut stack: Vec<char> = Vec::new();
+    let mut in_string = false;
+    let mut escape = false;
+    let mut started = false;
+    for (idx, ch) in raw.char_indices().skip(start) {
+        if !started {
+            if ch == '{' {
+                stack.push('}');
+                started = true;
+            } else if ch == '[' {
+                stack.push(']');
+                started = true;
+            } else {
+                continue;
+            }
+        } else if in_string {
+            if escape {
+                escape = false;
+            } else if ch == '\\' {
+                escape = true;
+            } else if ch == '"' {
+                in_string = false;
+            }
+        } else {
+            if ch == '"' {
+                in_string = true;
+            } else if ch == '{' {
+                stack.push('}');
+            } else if ch == '[' {
+                stack.push(']');
+            } else if ch == '}' || ch == ']' {
+                if let Some(expected) = stack.pop() {
+                    if ch != expected {
+                        return None;
+                    }
+                }
+                if stack.is_empty() {
+                    return Some(raw[start..=idx].to_string());
+                }
+            }
+        }
+    }
+    None
+}
+
+fn repair_truncated_json(raw: &str) -> Option<String> {
+    let start_obj = raw.find('{');
+    let start_arr = raw.find('[');
+    let start = match (start_obj, start_arr) {
+        (Some(obj), Some(arr)) => obj.min(arr),
+        (Some(obj), None) => obj,
+        (None, Some(arr)) => arr,
+        _ => return None,
+    };
+    let fragment = &raw[start..];
+    let mut stack: Vec<char> = Vec::new();
+    let mut in_string = false;
+    let mut escape = false;
+    let mut started = false;
+    for ch in fragment.chars() {
+        if !started {
+            if ch == '{' {
+                stack.push('}');
+                started = true;
+            } else if ch == '[' {
+                stack.push(']');
+                started = true;
+            } else {
+                continue;
+            }
+        } else if in_string {
+            if escape {
+                escape = false;
+            } else if ch == '\\' {
+                escape = true;
+            } else if ch == '"' {
+                in_string = false;
+            }
+        } else {
+            if ch == '"' {
+                in_string = true;
+            } else if ch == '{' {
+                stack.push('}');
+            } else if ch == '[' {
+                stack.push(']');
+            } else if ch == '}' || ch == ']' {
+                if let Some(expected) = stack.last().copied() {
+                    if ch == expected {
+                        stack.pop();
+                    }
+                }
+            }
+        }
+    }
+    if !started {
+        return None;
+    }
+    let mut repaired = fragment.to_string();
+    if in_string {
+        if escape {
+            repaired.push('\\');
+        }
+        repaired.push('"');
+    }
+    while let Some(closer) = stack.pop() {
+        repaired.push(closer);
+    }
+    Some(repaired)
 }
 
 fn build_json_parse_error(

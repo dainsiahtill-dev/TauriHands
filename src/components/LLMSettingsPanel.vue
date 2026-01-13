@@ -2,7 +2,7 @@
 import { computed, onMounted, ref, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 
-type ProviderId = "openai" | "anthropic" | "local" | "azure";
+type ProviderId = "openai" | "anthropic" | "local" | "ollama" | "azure";
 
 const provider = ref<ProviderId>("openai");
 const profileName = ref("Default");
@@ -35,6 +35,7 @@ const providerOptions = [
   { id: "openai", label: "OpenAI" },
   { id: "anthropic", label: "Anthropic" },
   { id: "local", label: "Local (Ollama/LM Studio)" },
+  { id: "ollama", label: "Ollama (LAN)" },
   { id: "azure", label: "Azure OpenAI" },
 ];
 
@@ -42,10 +43,17 @@ const modelsByProvider: Record<ProviderId, string[]> = {
   openai: ["gpt-5.1", "gpt-5.2", "gpt-5.2-codex"],
   anthropic: ["claude-3.5-sonnet", "claude-3.5-haiku", "claude-3-opus"],
   local: ["llama3.1:70b", "qwen2.5:32b", "mistral-large"],
+  ollama: ["llama3.1:70b", "qwen2.5:32b", "mistral-large"],
   azure: ["gpt-4o", "gpt-4.1", "gpt-35-turbo"],
 };
 
 const modelOptions = computed(() => modelsByProvider[provider.value] ?? []);
+const baseUrlPlaceholder = computed(() => {
+  if (provider.value === "ollama") return "http://<LAN-IP>:11434";
+  if (provider.value === "local") return "http://localhost:11434";
+  if (provider.value === "azure") return "https://{resource}.openai.azure.com";
+  return "https://api.openai.com/v1";
+});
 
 watch(provider, (next) => {
   const nextModels = modelsByProvider[next];
@@ -263,6 +271,7 @@ function resolveBaseUrl() {
   if (provider.value === "openai") return "https://api.openai.com/v1";
   if (provider.value === "anthropic") return "https://api.anthropic.com/v1";
   if (provider.value === "local") return "http://localhost:11434";
+  if (provider.value === "ollama") return "";
   return "";
 }
 
@@ -280,14 +289,14 @@ async function testConnection() {
     return;
   }
 
-  if (providerValue !== "local" && !apiKey.value.trim()) {
+  if (providerValue !== "local" && providerValue !== "ollama" && !apiKey.value.trim()) {
     pushTestLog("error", "API key is required.");
     testStatus.value = "error";
     return;
   }
 
   try {
-    if (providerValue === "local") {
+    if (providerValue === "local" || providerValue === "ollama") {
       const candidates = [`${base}/api/tags`, `${base}/v1/models`];
       for (const url of candidates) {
         pushTestLog("info", `Requesting ${url}`);
@@ -392,7 +401,7 @@ onMounted(() => {
           </label>
           <label class="full">
             <span>Base URL</span>
-            <input v-model="baseUrl" type="text" placeholder="https://api.openai.com/v1" />
+            <input v-model="baseUrl" type="text" :placeholder="baseUrlPlaceholder" />
           </label>
           <label class="full">
             <span>API Key</span>

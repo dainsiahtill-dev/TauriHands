@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import { agentStore } from "../agents/orchestrator";
+import StreamPreview from "./StreamPreview.vue";
 
 const {
   state,
@@ -268,7 +269,7 @@ watch(
         </div>
         <div v-else-if="isStreaming" class="llm-preview-block">
           <span class="llm-preview-title">Streaming</span>
-          <pre class="llm-preview-output">{{ streamContent }}</pre>
+          <StreamPreview :content="streamContent" />
         </div>
         <p v-else-if="isThinking" class="llm-preview-text">LLM is selecting the next action...</p>
         <p v-else class="llm-preview-text">
@@ -368,7 +369,7 @@ watch(
         </div>
         <div v-else-if="isStreaming" class="llm-preview-block">
           <span class="llm-preview-title">Streaming</span>
-          <pre class="llm-preview-output">{{ streamContent }}</pre>
+          <StreamPreview :content="streamContent" />
         </div>
         <p v-else-if="isThinking" class="llm-preview-text">LLM is selecting the next action...</p>
         <p v-else class="llm-preview-text">

@@ -116,6 +116,21 @@ type LlmStream = {
   active: boolean;
 };
 
+type JudgeCheck = {
+  id: string;
+  type: string;
+  status: string;
+  reason?: string | null;
+  evidence?: string[];
+};
+
+type JudgeResult = {
+  status: string;
+  reasons: string[];
+  evidence: string[];
+  checks: JudgeCheck[];
+};
+
 const state = reactive({
   run: null as RunState | null,
   toolCalls: [] as ToolCall[],
@@ -129,6 +144,8 @@ const state = reactive({
     updatedAt: 0,
     active: false,
   } as LlmStream,
+  judgeResult: null as JudgeResult | null,
+  timelineFocusId: "" as string,
 });
 
 function applyRun(next: RunState) {
@@ -151,6 +168,8 @@ function applyEvent(event: KernelEvent) {
       state.llmStream = { content: "", updatedAt: 0, active: false };
       state.toolCallIndex = {};
       state.chatEntries = [];
+      state.judgeResult = null;
+      state.timelineFocusId = "";
     }
     if (payload?.state) {
       applyRun(payload.state);
@@ -320,6 +339,15 @@ function applyEvent(event: KernelEvent) {
       message,
       timestamp: event.ts,
     });
+    return;
+  }
+
+  if (event.type === "JudgeResult") {
+    const payload = event.payload as { result?: JudgeResult };
+    if (payload?.result) {
+      state.judgeResult = payload.result;
+      state.timelineFocusId = event.id;
+    }
   }
 }
 

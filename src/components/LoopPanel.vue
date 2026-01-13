@@ -4,6 +4,7 @@ import { agentStore } from "../agents/orchestrator";
 import ChatPanel from "./ChatPanel.vue";
 import AgentPanel from "./AgentPanel.vue";
 import StatusPills from "./StatusPills.vue";
+import StreamPreview from "./StreamPreview.vue";
 
 const { state, start, pause, resume, stop, userInput } = agentStore;
 
@@ -18,6 +19,10 @@ const iteration = computed(() => run.value?.turn ?? 0);
 const budget = computed(() => run.value?.budget);
 const activeTool = computed(() => state.toolCalls.find((call) => call.status === "running"));
 const stream = computed(() => state.llmStream?.content ?? "");
+const judgeResult = computed(() => state.judgeResult);
+const judgeStatus = computed(() => judgeResult.value?.status ?? "none");
+const judgeReasons = computed(() => judgeResult.value?.reasons ?? []);
+const judgeChecks = computed(() => judgeResult.value?.checks ?? []);
 
 const pills = computed(() => [
   { label: "State", value: agentState.value, tone: agentState.value === "ERROR" ? "error" : "info" },
@@ -62,9 +67,36 @@ function continueRun() {
       </div>
       <div v-else-if="stream" class="activity-card">
         <p class="activity-title">LLM streaming</p>
-        <p class="activity-detail">{{ stream }}</p>
+        <StreamPreview :content="stream" />
       </div>
       <div v-else class="activity-card muted">No activity yet.</div>
+    </div>
+
+    <div class="loop-judge">
+      <div class="judge-header">
+        <p class="eyebrow">Judge</p>
+        <span class="judge-chip" :data-status="judgeStatus">{{ judgeStatus }}</span>
+      </div>
+      <div v-if="judgeResult" class="judge-card">
+        <p v-if="judgeReasons.length" class="judge-reasons">
+          {{ judgeReasons.join(" | ") }}
+        </p>
+        <div v-if="judgeChecks.length" class="judge-checks">
+          <details v-for="check in judgeChecks" :key="check.id" class="judge-check">
+            <summary>
+              <span class="judge-check-type">{{ check.type }}</span>
+              <span class="judge-check-status" :data-status="check.status">{{ check.status }}</span>
+              <span v-if="check.reason" class="judge-check-reason">{{ check.reason }}</span>
+            </summary>
+            <div v-if="check.evidence && check.evidence.length" class="judge-evidence">
+              <pre v-for="(item, index) in check.evidence" :key="index">{{ item }}</pre>
+            </div>
+            <p v-else class="judge-empty">No evidence.</p>
+          </details>
+        </div>
+        <p v-else class="judge-empty">No checks executed yet.</p>
+      </div>
+      <div v-else class="judge-card muted">No judge result yet.</div>
     </div>
 
     <div class="loop-chat">
@@ -125,6 +157,161 @@ function continueRun() {
 .activity-detail {
   margin: 0;
   word-break: break-word;
+}
+
+.loop-judge {
+  display: grid;
+  gap: 8px;
+}
+
+.judge-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.judge-chip {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(138, 160, 183, 0.3);
+  color: #8aa0b7;
+  background: rgba(138, 160, 183, 0.12);
+}
+
+.judge-chip[data-status="pass"] {
+  color: #b6ff4b;
+  border-color: rgba(182, 255, 75, 0.4);
+  background: rgba(182, 255, 75, 0.12);
+}
+
+.judge-chip[data-status="fail"] {
+  color: #ffb84d;
+  border-color: rgba(255, 184, 77, 0.4);
+  background: rgba(255, 184, 77, 0.12);
+}
+
+.judge-chip[data-status="pending"] {
+  color: #2df6ff;
+  border-color: rgba(45, 246, 255, 0.35);
+  background: rgba(45, 246, 255, 0.12);
+}
+
+.judge-card {
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: rgba(8, 12, 20, 0.7);
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  display: grid;
+  gap: 8px;
+}
+
+.judge-card.muted {
+  color: var(--text-tertiary);
+}
+
+.judge-reasons {
+  margin: 0;
+  color: #ffb84d;
+  font-size: 0.8rem;
+  word-break: break-word;
+}
+
+.judge-checks {
+  display: grid;
+  gap: 8px;
+}
+
+.judge-check {
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: rgba(5, 8, 14, 0.6);
+  overflow: hidden;
+}
+
+.judge-check summary {
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: #9bb0c6;
+  list-style: none;
+}
+
+.judge-check summary::-webkit-details-marker {
+  display: none;
+}
+
+.judge-check-type {
+  color: #2df6ff;
+}
+
+.judge-check-status {
+  padding: 2px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  font-size: 0.6rem;
+  color: #c7d7ec;
+}
+
+.judge-check-status[data-status="pass"] {
+  color: #b6ff4b;
+  border-color: rgba(182, 255, 75, 0.4);
+  background: rgba(182, 255, 75, 0.12);
+}
+
+.judge-check-status[data-status="fail"] {
+  color: #ffb84d;
+  border-color: rgba(255, 184, 77, 0.4);
+  background: rgba(255, 184, 77, 0.12);
+}
+
+.judge-check-status[data-status="pending"] {
+  color: #2df6ff;
+  border-color: rgba(45, 246, 255, 0.35);
+  background: rgba(45, 246, 255, 0.12);
+}
+
+.judge-check-reason {
+  text-transform: none;
+  letter-spacing: 0;
+  color: #8aa0b7;
+  font-size: 0.7rem;
+}
+
+.judge-evidence {
+  display: grid;
+  gap: 6px;
+  padding: 8px 10px 10px;
+  border-top: 1px solid var(--line);
+}
+
+.judge-evidence pre {
+  margin: 0;
+  font-size: 0.72rem;
+  color: #c7d7ec;
+  font-family: "JetBrains Mono", monospace;
+  white-space: pre-wrap;
+  max-height: 160px;
+  overflow: auto;
+  background: rgba(5, 8, 14, 0.7);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px;
+}
+
+.judge-empty {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--text-tertiary);
 }
 
 .loop-chat {

@@ -47,13 +47,13 @@ TauriHands 是一个本地桌面 **“软件工程自动驾驶仪”**（Tauri +
 - PTY 终端（xterm.js）与回放日志
 - 对话与工具输出回显（Tool output 可折叠展示）
 - 运行循环与事件流（runs/events 落盘）
+- Judge 规则执行（command/tests/git clean）
 - LLM Profile 存储与连接测试
 - Workspace 路径记忆（启动自动恢复上次路径）
 - 审计日志（`.taurihands/audit.log`）
 
 进行中 / 计划：
 
-- Judge（客观验收规则引擎：tests/build/lint/git clean）
 - Completion Criteria（任务级停止条件）
 - Checkpoint / Rollback（最小可行：git patch/stash + 事件）
 - Budget & Stop Policy（最大迭代/工具调用/运行时间）
@@ -112,6 +112,39 @@ Plan 面板现在已支持**对话框式计划生成**，并与 Kernel 的计划
 - App 级数据（全局）：
   - `settings.json`：最近 Workspace
   - `.taurihands/llm.json`：LLM Profile
+
+---
+
+## 里程碑（建议落地顺序）
+
+**M1：事件流与可回放骨架**
+
+- EventBus + Timeline（追加写 ndjson）
+- RunState + Snapshot（恢复能力）
+- UI Timeline 订阅与渲染
+
+**M2：Loop + Tool Host 最小闭环**
+
+- Controller/LoopEngine 主循环
+- terminal.exec + fs.read/write/search
+- 工具调用审计与错误摘要
+
+**M3：Plan/Task 面板与计划闭环**
+
+- plan.update / task.update
+- Plan 面板生成与状态切换
+- 任务配置（Completion/Budget/Risk）
+
+**M4：Judge + Stop Policy**
+
+- tests/build/lint 判定规则
+- Budget 触发 AWAITING_USER
+- Decision Slots（关键点暂停）
+
+**M5：Checkpoint/Rollback**
+
+- git patch/stash 级别回滚
+- timeline 跳转 + 分叉恢复
 
 ---
 

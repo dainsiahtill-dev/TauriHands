@@ -140,7 +140,7 @@ pub async fn request_completion(
     if base_url.is_empty() {
         return Err("Base URL is required".to_string());
     }
-    if provider != "local" && profile.api_key.trim().is_empty() {
+    if !matches!(provider.as_str(), "local" | "ollama") && profile.api_key.trim().is_empty() {
         return Err("API key is required".to_string());
     }
 
@@ -167,7 +167,7 @@ where
     if base_url.is_empty() {
         return Err("Base URL is required".to_string());
     }
-    if provider != "local" && profile.api_key.trim().is_empty() {
+    if !matches!(provider.as_str(), "local" | "ollama") && profile.api_key.trim().is_empty() {
         return Err("API key is required".to_string());
     }
 
@@ -198,14 +198,28 @@ where
 
 fn resolve_base_url(profile: &LlmProfile) -> String {
     if !profile.base_url.trim().is_empty() {
-        return profile.base_url.trim().trim_end_matches('/').to_string();
+        let base = profile.base_url.trim().trim_end_matches('/').to_string();
+        if matches!(profile.provider.to_lowercase().as_str(), "local" | "ollama") {
+            return normalize_local_base_url(&base);
+        }
+        return base;
     }
     match profile.provider.to_lowercase().as_str() {
         "openai" => "https://api.openai.com/v1".to_string(),
         "anthropic" => "https://api.anthropic.com/v1".to_string(),
         "local" => "http://localhost:11434/v1".to_string(),
+        "ollama" => "".to_string(),
         _ => "".to_string(),
     }
+}
+
+fn normalize_local_base_url(base: &str) -> String {
+    let trimmed = base.trim_end_matches('/');
+    let lower = trimmed.to_lowercase();
+    if lower.contains("/chat/completions") || lower.ends_with("/v1") || lower.contains("/v1/") {
+        return trimmed.to_string();
+    }
+    format!("{}/v1", trimmed)
 }
 
 fn openai_chat_url(base_url: &str) -> String {
