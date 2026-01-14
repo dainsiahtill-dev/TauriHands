@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { agentStore } from "../agents/orchestrator";
+import PanelShell from "./PanelShell.vue";
 
 type ChatRole = "user" | "assistant" | "system";
 
@@ -87,6 +88,24 @@ async function sendMessage() {
   }
 }
 
+function avatarClass(role: ChatRole) {
+  if (role === "assistant") return "chat-avatar chat-avatar--assistant";
+  if (role === "user") return "chat-avatar chat-avatar--user";
+  return "chat-avatar chat-avatar--system";
+}
+
+function bubbleClass(role: ChatRole) {
+  if (role === "user") return "chat-bubble chat-bubble--user";
+  if (role === "assistant") return "chat-bubble chat-bubble--assistant";
+  return "chat-bubble chat-bubble--system";
+}
+
+function statusClass(status: ChatToolCall["status"]) {
+  if (status === "ok") return "tool-status tool-status--ok";
+  if (status === "error") return "tool-status tool-status--error";
+  return "tool-status tool-status--running";
+}
+
 onMounted(async () => {
   await initKernelStore();
   window.addEventListener("focus-chat-input", handleFocusInput);
@@ -106,395 +125,436 @@ watch(
 </script>
 
 <template>
-  <div class="chat-panel">
-    <header class="chat-header">
-      <div>
-        <p class="eyebrow">Conversation</p>
-        <h3>Agent chat</h3>
-      </div>
-      <span class="status-pill" :data-state="agentState">{{ agentState }}</span>
-    </header>
+  <PanelShell title="Chat / Agent Interaction" subtitle="Conversation stream" :no-padding="true">
+    <template #actions>
+      <span class="state-chip" :data-state="agentState">{{ agentState }}</span>
+    </template>
 
-    <div v-if="isAwaiting" class="awaiting-banner">
-      <div>
-        <p class="eyebrow">Action required</p>
-        <p class="awaiting-text">The agent is waiting for confirmation or input.</p>
+    <div class="chat-panel">
+      <div class="chat-banner">
+        <span>Execution Loop</span>
+        <strong>Plan -> Act -> Observe</strong>
       </div>
-      <div class="awaiting-actions">
-        <button class="btn primary" type="button" @click="handleContinue">Continue</button>
-        <button class="btn ghost" type="button" @click="handleStop">Stop</button>
-      </div>
-    </div>
-
-    <div ref="listRef" class="chat-messages">
       <div
-        v-for="message in displayEntries"
-        :key="message.id"
-        class="chat-message"
-        :data-role="message.role"
+        v-if="isAwaiting"
+        class="mx-4 mt-2 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-accent-lime/40 bg-accent-lime/10 px-4 py-3"
       >
-        <div class="message-meta">
-          <span class="role">{{ message.role }}</span>
-          <span class="time">{{ formatTime(message.timestamp) }}</span>
+        <div>
+          <p class="text-[11px] uppercase tracking-[0.2em] text-accent-lime">Action required</p>
+          <p class="text-sm text-text-main">The agent is waiting for confirmation or input.</p>
         </div>
-        <p>{{ message.content }}</p>
-        <div v-if="message.toolCalls && message.toolCalls.length" class="tool-output">
-          <details
-            v-for="call in message.toolCalls"
-            :key="call.id"
-            class="tool-details"
-            :open="call.status === 'running'"
-          >
-            <summary>
-              <span class="tool-label">{{ call.tool }}</span>
-              <span class="tool-status" :data-status="call.status">{{ call.status }}</span>
-              <span class="tool-detail">{{ call.detail }}</span>
-            </summary>
-            <div class="tool-body">
-              <pre v-if="call.output" class="tool-output-text">{{ call.output }}</pre>
-              <p v-else class="empty-text">No output yet.</p>
-              <p v-if="call.summary" class="tool-summary">{{ call.summary }}</p>
-            </div>
-          </details>
+        <div class="flex gap-2">
+          <button class="btn primary" type="button" @click="handleContinue">Continue</button>
+          <button class="btn ghost" type="button" @click="handleStop">Stop</button>
         </div>
       </div>
-    </div>
 
-    <div class="chat-input">
-      <textarea
-        ref="inputRef"
-        v-model="input"
-        rows="2"
-        placeholder="Type a request for the agent (Ctrl+Enter to send)"
-        @keydown.ctrl.enter.prevent="sendMessage"
-      ></textarea>
-      <div class="chat-actions">
-        <span class="hint">Ctrl+Enter to send</span>
-        <div class="action-buttons">
-          <button class="btn ghost" type="button" disabled title="Planned">
-            Insert output
-          </button>
+      <div ref="listRef" class="chat-list">
+        <div
+          v-for="message in displayEntries"
+          :key="message.id"
+          class="chat-entry"
+          :class="message.role === 'user' ? 'is-user' : ''"
+        >
+          <div
+            :class="avatarClass(message.role)"
+          >
+            <span v-if="message.role === 'assistant'">AI</span>
+            <span v-else-if="message.role === 'user'">U</span>
+            <span v-else>SYS</span>
+          </div>
+
+          <div class="chat-stack">
+            <div
+              class="chat-meta"
+              :class="message.role === 'user' ? 'is-user' : ''"
+            >
+              <span class="chat-role">
+                {{ message.role }}
+              </span>
+              <span class="chat-time">{{ formatTime(message.timestamp) }}</span>
+            </div>
+
+            <div :class="bubbleClass(message.role)">
+              {{ message.content }}
+            </div>
+
+            <div v-if="message.toolCalls && message.toolCalls.length" class="space-y-2">
+              <details
+                v-for="call in message.toolCalls"
+                :key="call.id"
+                class="tool-detail"
+                :open="call.status === 'running'"
+              >
+                <summary
+                  class="tool-summary"
+                >
+                  <span class="text-accent">{{ call.tool }}</span>
+                  <span class="tool-chip" :class="statusClass(call.status)">
+                    {{ call.status }}
+                  </span>
+                  <span class="tool-detail-text">{{ call.detail }}</span>
+                </summary>
+                <div class="tool-body">
+                  <pre v-if="call.output">{{ call.output }}</pre>
+                  <p v-else class="tool-empty">No output yet.</p>
+                  <p v-if="call.summary" class="tool-summary-text">{{ call.summary }}</p>
+                </div>
+              </details>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="chat-input">
+        <div class="chat-input__box">
+          <textarea
+            ref="inputRef"
+            v-model="input"
+            rows="2"
+            placeholder="Type a request for the agent (Ctrl+Enter to send)"
+            class="chat-input__field"
+            @keydown.ctrl.enter.prevent="sendMessage"
+          ></textarea>
           <button class="btn primary" type="button" :disabled="!input.trim()" @click="sendMessage">
             Send
           </button>
         </div>
+        <div class="chat-input__meta">
+          <span>Ctrl+Enter to send</span>
+          <span>Orchestrator: <span class="text-status-success">Online</span></span>
+        </div>
+        <p v-if="sendError" class="mt-2 text-xs text-status-warning">{{ sendError }}</p>
       </div>
-      <p v-if="sendError" class="error-text">{{ sendError }}</p>
     </div>
-  </div>
+  </PanelShell>
 </template>
 
 <style scoped>
-.chat-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  height: 100%;
-  min-height: 0;
-  padding: 14px;
-  border-radius: 16px;
-  background: transparent;
-  border: none;
-  box-shadow: none;
-}
-
-.chat-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-}
-
-.chat-header h3 {
-  margin: 0;
-  font-size: 1.05rem;
-}
-
-.status-pill {
-  font-size: 0.65rem;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-  padding: 6px 10px;
-  border-radius: 999px;
-  border: 1px solid rgba(138, 160, 183, 0.3);
-  color: #8aa0b7;
-  background: rgba(138, 160, 183, 0.12);
-}
-
-.status-pill[data-state="RUNNING"] {
-  color: #2df6ff;
-  border-color: rgba(45, 246, 255, 0.4);
-  background: rgba(45, 246, 255, 0.12);
-}
-
-.status-pill[data-state="AWAITING_USER"] {
-  color: #b6ff4b;
-  border-color: rgba(182, 255, 75, 0.4);
-  background: rgba(182, 255, 75, 0.12);
-}
-
-.status-pill[data-state="ERROR"] {
-  color: #ffb84d;
-  border-color: rgba(255, 184, 77, 0.4);
-  background: rgba(255, 184, 77, 0.12);
-}
-
-.awaiting-banner {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 12px 14px;
-  border-radius: 14px;
-  border: 1px solid rgba(182, 255, 75, 0.35);
-  background: rgba(182, 255, 75, 0.08);
-}
-
-.awaiting-text {
-  margin: 4px 0 0;
-  color: #b6ff4b;
-  font-size: 0.85rem;
-}
-
-.awaiting-actions {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.chat-messages {
-  flex: 1;
-  min-height: 0;
-  display: grid;
-  gap: 10px;
-  overflow: auto;
-  padding-right: 4px;
-  padding-bottom: 6px;
-}
-
-.chat-message {
-  padding: 10px 12px;
-  border-radius: 12px;
-  background: rgba(8, 12, 20, 0.72);
-  border: 1px solid var(--line);
-  color: #c7d7ec;
-}
-
-.chat-message[data-role="user"] {
-  border-color: rgba(45, 246, 255, 0.35);
-  box-shadow: 0 0 16px rgba(45, 246, 255, 0.08);
-}
-
-.chat-message[data-role="assistant"] {
-  border-color: rgba(182, 255, 75, 0.35);
-}
-
-.chat-message[data-role="system"] {
-  border-color: rgba(138, 160, 183, 0.35);
-  color: #9bb0c6;
-}
-
-.message-meta {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  font-size: 0.65rem;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-  color: #8aa0b7;
-  margin-bottom: 6px;
-}
-
-.message-meta .role {
-  padding: 4px 8px;
-  border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(9, 14, 22, 0.8);
-}
-
-.message-meta .time {
-  font-variant-numeric: tabular-nums;
-}
-
-.chat-message p {
-  margin: 0;
-  font-size: 0.85rem;
-  line-height: 1.5;
-}
-
-.tool-output {
-  margin-top: 8px;
-  display: grid;
-  gap: 8px;
-}
-
-.tool-details {
-  border-radius: 12px;
-  border: 1px solid var(--line);
-  background: rgba(8, 12, 20, 0.7);
-  overflow: hidden;
-}
-
-.tool-details summary {
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 10px;
-  font-size: 0.7rem;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-  color: #9bb0c6;
-  list-style: none;
-}
-
-.tool-details summary::-webkit-details-marker {
+summary::-webkit-details-marker {
   display: none;
 }
 
-.tool-label {
-  color: #2df6ff;
+summary::marker {
+  content: "";
 }
 
-.tool-status {
-  padding: 2px 6px;
-  border-radius: 999px;
-  border: 1px solid var(--line);
+.chat-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: rgba(7, 12, 22, 0.55);
+  position: relative;
+  overflow: hidden;
+}
+
+.chat-panel::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.035) 0 1px, transparent 1px 5px);
+  opacity: 0.08;
+  pointer-events: none;
+}
+
+.chat-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  border-bottom: 1px solid rgba(var(--line-rgb), 0.28);
+  background: rgba(8, 14, 26, 0.85);
+  box-shadow: inset 0 0 14px rgba(var(--accent-rgb), 0.12);
   font-size: 0.6rem;
-  color: #c7d7ec;
+  text-transform: uppercase;
+  letter-spacing: 0.22em;
+  color: var(--text-tertiary);
+  position: relative;
+  z-index: 1;
 }
 
-.tool-status[data-status="running"] {
-  color: #2df6ff;
-  border-color: rgba(45, 246, 255, 0.4);
-  background: rgba(45, 246, 255, 0.12);
+.chat-banner strong {
+  color: var(--accent);
+  font-weight: 600;
 }
 
-.tool-status[data-status="ok"] {
-  color: #b6ff4b;
-  border-color: rgba(182, 255, 75, 0.4);
-  background: rgba(182, 255, 75, 0.12);
+.state-chip {
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--line-rgb), 0.4);
+  background: rgba(8, 14, 26, 0.8);
+  font-size: 0.55rem;
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+  color: var(--text-secondary);
 }
 
-.tool-status[data-status="error"] {
-  color: #ffb84d;
-  border-color: rgba(255, 184, 77, 0.4);
-  background: rgba(255, 184, 77, 0.12);
+.state-chip[data-state="RUNNING"] {
+  color: var(--accent);
+  border-color: rgba(var(--accent-rgb), 0.5);
+}
+
+.state-chip[data-state="AWAITING_USER"] {
+  color: var(--accent-2);
+  border-color: rgba(var(--accent-2-rgb), 0.5);
+}
+
+.state-chip[data-state="ERROR"] {
+  color: var(--status-warning);
+  border-color: rgba(var(--status-warning-rgb), 0.5);
+}
+
+.state-chip[data-state="PAUSED"] {
+  color: var(--status-info);
+  border-color: rgba(var(--status-info-rgb), 0.5);
+}
+
+.chat-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 16px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  position: relative;
+  z-index: 1;
+}
+
+.chat-entry {
+  display: flex;
+  gap: 12px;
+}
+
+.chat-entry.is-user {
+  flex-direction: row-reverse;
+}
+
+.chat-avatar {
+  height: 36px;
+  width: 36px;
+  border-radius: 10px;
+  border: 1px solid rgba(var(--line-rgb), 0.4);
+  background: linear-gradient(135deg, rgba(12, 22, 40, 0.9), rgba(7, 12, 22, 0.85));
+  display: grid;
+  place-items: center;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-primary);
+}
+
+.chat-avatar--assistant {
+  color: var(--accent);
+  border-color: rgba(var(--accent-rgb), 0.5);
+  box-shadow: 0 0 12px rgba(var(--accent-rgb), 0.25);
+}
+
+.chat-avatar--user {
+  border-color: rgba(var(--line-rgb), 0.45);
+}
+
+.chat-avatar--system {
+  color: var(--status-warning);
+  border-color: rgba(var(--status-warning-rgb), 0.5);
+}
+
+.chat-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 80%;
+}
+
+.chat-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.55rem;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: var(--text-tertiary);
+}
+
+.chat-meta.is-user {
+  justify-content: flex-end;
+}
+
+.chat-role {
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--line-rgb), 0.3);
+  background: rgba(7, 12, 22, 0.6);
+  color: var(--text-secondary);
+}
+
+.chat-time {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.6rem;
+  color: var(--text-tertiary);
+}
+
+.chat-bubble {
+  border-radius: 16px;
+  border: 1px solid rgba(var(--line-rgb), 0.35);
+  padding: 10px 14px;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  background: rgba(7, 12, 22, 0.78);
+  color: var(--text-soft);
+  box-shadow: inset 0 0 12px rgba(var(--accent-rgb), 0.08);
+}
+
+.chat-bubble--user {
+  border-color: rgba(var(--accent-rgb), 0.5);
+  background: rgba(var(--accent-rgb), 0.12);
+  color: var(--text-primary);
+  box-shadow: 0 0 18px rgba(var(--accent-rgb), 0.18);
+}
+
+.chat-bubble--assistant {
+  background: rgba(9, 16, 30, 0.85);
+  color: var(--text-primary);
+}
+
+.chat-bubble--system {
+  background: rgba(8, 14, 26, 0.6);
+  color: var(--text-secondary);
 }
 
 .tool-detail {
+  border-radius: 12px;
+  border: 1px solid rgba(var(--line-rgb), 0.28);
+  background: rgba(7, 12, 22, 0.75);
+  overflow: hidden;
+}
+
+.tool-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  font-size: 0.55rem;
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  list-style: none;
+}
+
+.tool-chip {
+  padding: 2px 6px;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--line-rgb), 0.35);
+  font-size: 0.55rem;
+}
+
+.tool-status {
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+}
+
+.tool-status--ok {
+  color: var(--status-success);
+  border-color: rgba(var(--status-success-rgb), 0.5);
+}
+
+.tool-status--error {
+  color: var(--status-warning);
+  border-color: rgba(var(--status-warning-rgb), 0.5);
+}
+
+.tool-status--running {
+  color: var(--accent);
+  border-color: rgba(var(--accent-rgb), 0.5);
+}
+
+.tool-detail-text {
   text-transform: none;
   letter-spacing: 0;
-  color: #8aa0b7;
+  color: var(--text-secondary);
   font-size: 0.7rem;
 }
 
 .tool-body {
-  padding: 8px 10px 10px;
-  border-top: 1px solid var(--line);
-  display: grid;
-  gap: 6px;
+  border-top: 1px solid rgba(var(--line-rgb), 0.24);
+  padding: 10px;
+  font-size: 0.7rem;
+  color: var(--text-secondary);
 }
 
-.tool-output-text {
-  margin: 0;
-  font-size: 0.72rem;
-  color: #c7d7ec;
-  font-family: "JetBrains Mono", monospace;
+.tool-body pre {
+  margin: 0 0 8px;
   white-space: pre-wrap;
-  max-height: 180px;
-  overflow: auto;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.7rem;
+  color: var(--text-primary);
   background: rgba(5, 8, 14, 0.7);
-  border: 1px solid var(--line);
+  border: 1px solid rgba(var(--line-rgb), 0.24);
   border-radius: 8px;
   padding: 8px;
 }
 
-.tool-summary {
+.tool-empty {
   margin: 0;
-  font-size: 0.75rem;
-  color: #9bb0c6;
+  color: var(--text-tertiary);
+}
+
+.tool-summary-text {
+  margin: 6px 0 0;
+  color: var(--text-tertiary);
 }
 
 .chat-input {
-  display: grid;
-  gap: 8px;
-  padding-top: 4px;
+  border-top: 1px solid rgba(var(--line-rgb), 0.3);
+  background: rgba(8, 14, 26, 0.8);
+  padding: 12px 16px 14px;
+  position: relative;
+  z-index: 1;
 }
 
-.chat-input textarea {
-  border-radius: 12px;
-  border: 1px solid var(--line);
-  padding: 10px 12px;
-  background: var(--panel-glass);
-  color: #e6f3ff;
-  font-family: inherit;
-  resize: vertical;
-}
-
-.chat-actions {
+.chat-input__box {
   display: flex;
-  justify-content: space-between;
+  align-items: flex-end;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 14px;
+  border: 1px solid rgba(var(--line-rgb), 0.35);
+  background: rgba(7, 12, 22, 0.75);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.chat-input__box:focus-within {
+  border-color: rgba(var(--accent-rgb), 0.6);
+  box-shadow: 0 0 18px rgba(var(--accent-rgb), 0.18);
+}
+
+.chat-input__field {
+  flex: 1;
+  min-height: 44px;
+  resize: none;
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  font-size: 0.85rem;
+  outline: none;
+}
+
+.chat-input__field::placeholder {
+  color: var(--text-tertiary);
+}
+
+.chat-input__meta {
+  display: flex;
   align-items: center;
-  gap: 12px;
-}
-
-.action-buttons {
-  display: flex;
-  gap: 8px;
-}
-
-.hint {
-  font-size: 0.7rem;
-  color: #8aa0b7;
-}
-
-.error-text {
-  margin: 0;
-  font-size: 0.75rem;
-  color: #ffb84d;
-}
-
-.empty-text {
-  margin: 0;
-  font-size: 0.75rem;
-  color: #8aa0b7;
-}
-
-.btn {
-  border-radius: 999px;
-  border: 1px solid var(--line);
-  padding: 8px 14px;
-  font-size: 0.7rem;
+  justify-content: space-between;
+  margin-top: 8px;
+  font-size: 0.6rem;
   text-transform: uppercase;
-  letter-spacing: 0.12em;
-  background: var(--panel-glass);
-  color: #c7d7ec;
-  cursor: pointer;
-}
-
-.btn.primary {
-  background: linear-gradient(135deg, rgba(45, 246, 255, 0.9), rgba(74, 125, 255, 0.9));
-  color: #05060a;
-  border-color: transparent;
-  box-shadow: 0 0 18px rgba(45, 246, 255, 0.35);
-}
-
-.btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.btn.ghost:hover {
-  border-color: rgba(45, 246, 255, 0.5);
-  color: #2df6ff;
-}
-
-.eyebrow {
-  margin: 0;
-  font-size: 0.7rem;
-  text-transform: uppercase;
-  letter-spacing: 0.2em;
-  color: #2df6ff;
+  letter-spacing: 0.16em;
+  color: var(--text-tertiary);
 }
 </style>

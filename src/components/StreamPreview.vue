@@ -225,7 +225,7 @@ function actionIcon(type: string) {
 .stream-card {
   position: relative;
   border-radius: 12px;
-  border: 1px solid rgba(45, 246, 255, 0.18);
+  border: 1px solid rgba(var(--accent-rgb), 0.18);
   background: linear-gradient(145deg, rgba(8, 12, 20, 0.92), rgba(10, 18, 30, 0.92));
   padding: 10px 12px;
   display: grid;
@@ -242,43 +242,43 @@ function actionIcon(type: string) {
   bottom: 10px;
   width: 3px;
   border-radius: 999px;
-  background: linear-gradient(180deg, rgba(45, 246, 255, 0.9), rgba(74, 125, 255, 0.3));
+  background: linear-gradient(180deg, rgba(var(--accent-rgb), 0.9), rgba(var(--status-info-rgb), 0.3));
   opacity: 0.7;
 }
 
 .stream-card[data-category="fs"]::before {
-  background: linear-gradient(180deg, rgba(182, 255, 75, 0.9), rgba(45, 246, 255, 0.3));
+  background: linear-gradient(180deg, rgba(var(--status-success-rgb), 0.9), rgba(var(--accent-rgb), 0.3));
 }
 
 .stream-card[data-category="terminal"]::before,
 .stream-card[data-category="tests"]::before {
-  background: linear-gradient(180deg, rgba(45, 246, 255, 0.9), rgba(255, 184, 77, 0.3));
+  background: linear-gradient(180deg, rgba(var(--accent-rgb), 0.9), rgba(var(--status-warning-rgb), 0.3));
 }
 
 .stream-card[data-category="plan"]::before,
 .stream-card[data-category="task"]::before {
-  background: linear-gradient(180deg, rgba(74, 125, 255, 0.9), rgba(45, 246, 255, 0.3));
+  background: linear-gradient(180deg, rgba(var(--status-info-rgb), 0.9), rgba(var(--accent-rgb), 0.3));
 }
 
 .stream-card[data-category="git"]::before {
-  background: linear-gradient(180deg, rgba(255, 184, 77, 0.9), rgba(45, 246, 255, 0.3));
+  background: linear-gradient(180deg, rgba(var(--status-warning-rgb), 0.9), rgba(var(--accent-rgb), 0.3));
 }
 
 .stream-card[data-category="ask"]::before {
-  background: linear-gradient(180deg, rgba(182, 255, 75, 0.9), rgba(74, 125, 255, 0.3));
+  background: linear-gradient(180deg, rgba(var(--status-success-rgb), 0.9), rgba(var(--status-info-rgb), 0.3));
 }
 
 .stream-card[data-category="raw"]::before,
 .stream-card[data-category="message"]::before {
-  background: linear-gradient(180deg, rgba(138, 160, 183, 0.7), rgba(45, 246, 255, 0.25));
+  background: linear-gradient(180deg, rgba(var(--text-secondary-rgb), 0.7), rgba(var(--accent-rgb), 0.25));
 }
 
 .message-card {
-  border-color: rgba(74, 125, 255, 0.25);
+  border-color: rgba(var(--status-info-rgb), 0.25);
 }
 
 .raw-card {
-  border-color: rgba(138, 160, 183, 0.25);
+  border-color: rgba(var(--text-secondary-rgb), 0.25);
 }
 
 .card-header {
@@ -289,7 +289,7 @@ function actionIcon(type: string) {
   font-size: 0.7rem;
   text-transform: uppercase;
   letter-spacing: 0.12em;
-  color: #9bb0c6;
+  color: var(--text-secondary);
 }
 
 .card-icon {
@@ -302,13 +302,13 @@ function actionIcon(type: string) {
   justify-content: center;
   font-size: 0.6rem;
   letter-spacing: 0.08em;
-  color: #2df6ff;
+  color: var(--accent);
   background: linear-gradient(150deg, rgba(8, 12, 20, 0.95), rgba(12, 20, 32, 0.85));
-  border: 1px solid rgba(45, 246, 255, 0.45);
+  border: 1px solid rgba(var(--accent-rgb), 0.45);
   text-transform: uppercase;
   box-shadow:
-    inset 0 0 10px rgba(45, 246, 255, 0.12),
-    0 0 12px rgba(45, 246, 255, 0.35);
+    inset 0 0 10px rgba(var(--accent-rgb), 0.12),
+    0 0 12px rgba(var(--accent-rgb), 0.35);
 }
 
 .card-icon::after {
@@ -316,7 +316,7 @@ function actionIcon(type: string) {
   position: absolute;
   inset: 4px;
   border-radius: 6px;
-  border: 1px solid rgba(45, 246, 255, 0.2);
+  border: 1px solid rgba(var(--accent-rgb), 0.2);
   opacity: 0.8;
 }
 
@@ -324,7 +324,7 @@ function actionIcon(type: string) {
   width: 16px;
   height: 16px;
   stroke: currentColor;
-  filter: drop-shadow(0 0 6px rgba(45, 246, 255, 0.25));
+  filter: drop-shadow(0 0 6px rgba(var(--accent-rgb), 0.25));
 }
 
 .card-icon-text {
@@ -332,72 +332,72 @@ function actionIcon(type: string) {
 }
 
 .card-icon[data-category="fs"] {
-  color: #b6ff4b;
-  border-color: rgba(182, 255, 75, 0.45);
+  color: var(--status-success);
+  border-color: rgba(var(--status-success-rgb), 0.45);
   box-shadow:
-    inset 0 0 10px rgba(182, 255, 75, 0.16),
-    0 0 12px rgba(182, 255, 75, 0.35);
+    inset 0 0 10px rgba(var(--status-success-rgb), 0.16),
+    0 0 12px rgba(var(--status-success-rgb), 0.35);
 }
 
 .card-icon[data-category="fs"]::after {
-  border-color: rgba(182, 255, 75, 0.25);
+  border-color: rgba(var(--status-success-rgb), 0.25);
 }
 
 .card-icon[data-category="terminal"],
 .card-icon[data-category="tests"] {
-  color: #2df6ff;
+  color: var(--accent);
 }
 
 .card-icon[data-category="git"] {
-  color: #ffb84d;
-  border-color: rgba(255, 184, 77, 0.45);
+  color: var(--status-warning);
+  border-color: rgba(var(--status-warning-rgb), 0.45);
   box-shadow:
-    inset 0 0 10px rgba(255, 184, 77, 0.16),
-    0 0 12px rgba(255, 184, 77, 0.35);
+    inset 0 0 10px rgba(var(--status-warning-rgb), 0.16),
+    0 0 12px rgba(var(--status-warning-rgb), 0.35);
 }
 
 .card-icon[data-category="git"]::after {
-  border-color: rgba(255, 184, 77, 0.25);
+  border-color: rgba(var(--status-warning-rgb), 0.25);
 }
 
 .card-icon[data-category="plan"],
 .card-icon[data-category="task"] {
-  color: #4a7dff;
-  border-color: rgba(74, 125, 255, 0.45);
+  color: var(--status-info);
+  border-color: rgba(var(--status-info-rgb), 0.45);
   box-shadow:
-    inset 0 0 10px rgba(74, 125, 255, 0.16),
-    0 0 12px rgba(74, 125, 255, 0.35);
+    inset 0 0 10px rgba(var(--status-info-rgb), 0.16),
+    0 0 12px rgba(var(--status-info-rgb), 0.35);
 }
 
 .card-icon[data-category="plan"]::after,
 .card-icon[data-category="task"]::after {
-  border-color: rgba(74, 125, 255, 0.25);
+  border-color: rgba(var(--status-info-rgb), 0.25);
 }
 
 .card-icon[data-category="ask"] {
-  color: #b6ff4b;
+  color: var(--status-success);
 }
 
 .card-icon[data-category="raw"],
 .card-icon[data-category="message"] {
-  color: #8aa0b7;
-  border-color: rgba(138, 160, 183, 0.45);
+  color: var(--text-secondary);
+  border-color: rgba(var(--text-secondary-rgb), 0.45);
   box-shadow:
-    inset 0 0 10px rgba(138, 160, 183, 0.16),
-    0 0 12px rgba(138, 160, 183, 0.3);
+    inset 0 0 10px rgba(var(--text-secondary-rgb), 0.16),
+    0 0 12px rgba(var(--text-secondary-rgb), 0.3);
 }
 
 .card-icon[data-category="raw"]::after,
 .card-icon[data-category="message"]::after {
-  border-color: rgba(138, 160, 183, 0.2);
+  border-color: rgba(var(--text-secondary-rgb), 0.2);
 }
 
 .card-tag {
   padding: 2px 8px;
   border-radius: 999px;
-  border: 1px solid rgba(45, 246, 255, 0.3);
-  background: rgba(45, 246, 255, 0.1);
-  color: #2df6ff;
+  border: 1px solid rgba(var(--accent-rgb), 0.3);
+  background: rgba(var(--accent-rgb), 0.1);
+  color: var(--accent);
   font-size: 0.6rem;
 }
 
@@ -422,7 +422,7 @@ function actionIcon(type: string) {
 .card-path {
   font-family: "JetBrains Mono", monospace;
   font-size: 0.72rem;
-  color: #9bb0c6;
+  color: var(--text-secondary);
 }
 
 .card-steps {
@@ -437,7 +437,7 @@ function actionIcon(type: string) {
 .card-code {
   margin: 0;
   font-size: 0.72rem;
-  color: #c7d7ec;
+  color: var(--text-soft);
   font-family: "JetBrains Mono", monospace;
   white-space: pre-wrap;
   max-height: 240px;
@@ -448,3 +448,5 @@ function actionIcon(type: string) {
   padding: 8px;
 }
 </style>
+
+

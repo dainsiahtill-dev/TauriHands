@@ -1,41 +1,69 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, onMounted } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import { agentStore } from "../agents/orchestrator";
 
 type ViewId = "console" | "llm" | "tools" | "security";
 
-const pages: Record<ViewId, { title: string; subtitle: string; description: string }> = {
-  console: {
-    title: "Console",
-    subtitle: "Terminal-first operations",
-    description: "Plan, execute, and verify with live PTY sessions and tool calls.",
-  },
-  llm: {
-    title: "LLM Settings",
-    subtitle: "Models, safety, and tools",
-    description: "Configure providers, prompts, and tool access for deterministic runs.",
-  },
-  tools: {
-    title: "Tool Settings",
-    subtitle: "Policies and guardrails",
-    description: "Define tool scopes, allowlists, and audit settings.",
-  },
-  security: {
-    title: "Security Settings",
-    subtitle: "Sandbox and network",
-    description: "Control path access, command policy, and network access.",
-  },
-};
-
-const navItems: Array<{ id: ViewId; label: string; hint: string }> = [
-  { id: "console", label: "Console", hint: "Terminal + Agent timeline" },
-  { id: "llm", label: "LLM Settings", hint: "Providers, prompts, tool policy" },
-  { id: "tools", label: "Tool Settings", hint: "Policies and guardrails" },
-  { id: "security", label: "Security Settings", hint: "Sandbox + network" },
-];
-
-const route = useRoute();
 const router = useRouter();
+const route = useRoute();
+
+const { state, initKernelStore } = agentStore;
+const run = computed(() => state.run);
+const agentState = computed(() => run.value?.agentState ?? "IDLE");
+const runId = computed(() => run.value?.runId ?? "-");
+const shortRunId = computed(() => (runId.value ? runId.value.slice(0, 8) : "-"));
+const workspacePath = computed(() => run.value?.toolContext?.cwd ?? "Not set");
+const sessionId = computed(() => run.value?.toolContext?.sessionId ?? "none");
+const workspaceName = computed(() => {
+  if (!workspacePath.value || workspacePath.value === "Not set") return "Not set";
+  const parts = workspacePath.value.split(/[\\/]/).filter(Boolean);
+  return parts[parts.length - 1] ?? workspacePath.value;
+});
+const budget = computed(() => run.value?.budget);
+const budgetLabel = computed(() =>
+  budget.value ? `${budget.value.usedSteps}/${budget.value.maxSteps}` : "-",
+);
+const budgetPercent = computed(() => {
+  const current = budget.value;
+  if (!current || current.maxSteps === 0) return 0;
+  return Math.min(100, Math.round((current.usedSteps / current.maxSteps) * 100));
+});
+const toolCalls = computed(() => state.toolCalls ?? []);
+const activeTool = computed(() => toolCalls.value.find((call) => call.status === "running"));
+const toolStats = computed(() => {
+  const stats = { total: 0, running: 0, ok: 0, error: 0 };
+  for (const call of toolCalls.value) {
+    stats.total += 1;
+    if (call.status === "running") stats.running += 1;
+    if (call.status === "ok") stats.ok += 1;
+    if (call.status === "error") stats.error += 1;
+  }
+  return stats;
+});
+const successPercent = computed(() => {
+  if (!toolStats.value.total) return 0;
+  return Math.round((toolStats.value.ok / toolStats.value.total) * 100);
+});
+const isStreaming = computed(() => state.llmStream.active);
+const streamPreview = computed(() => state.llmStream.content.slice(0, 120));
+const powerPercent = computed(() => Math.max(0, 100 - budgetPercent.value));
+const strategyLabel = computed(() => (run.value?.autoRun ? "Auto-pilot" : "Guided"));
+
+const agentStateClass = computed(() => {
+  switch (agentState.value) {
+    case "RUNNING":
+      return "text-accent";
+    case "AWAITING_USER":
+      return "text-accent-lime";
+    case "ERROR":
+      return "text-status-warning";
+    case "PAUSED":
+      return "text-status-info";
+    default:
+      return "text-text-muted";
+  }
+});
 
 const currentView = computed<ViewId>(() => {
   if (route.name === "llm") return "llm";
@@ -43,215 +71,220 @@ const currentView = computed<ViewId>(() => {
   if (route.name === "security") return "security";
   return "console";
 });
-const pageMeta = computed(() => pages[currentView.value]);
 
-function goTo(view: ViewId) {
+const showSecondarySidebar = computed(() => currentView.value === "console");
+
+const IconCore = {
+  template:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><circle cx="12" cy="12" r="8"></circle><path d="M12 4v2M12 18v2M4 12h2M18 12h2"></path></svg>',
+};
+const IconConsole = {
+  template:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="m7 9 3 3-3 3"></path><path d="M13 15h4"></path></svg>',
+};
+const IconBrain = {
+  template:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4a3 3 0 0 0-3 3v1a3 3 0 0 0-2 2.8 3 3 0 0 0 1 2.2 3 3 0 0 0 1 5.8h4"></path><path d="M15 4a3 3 0 0 1 3 3v1a3 3 0 0 1 2 2.8 3 3 0 0 1-1 2.2 3 3 0 0 1-1 5.8h-4"></path><path d="M9 7h6M9 12h6M9 17h6"></path></svg>',
+};
+const IconTools = {
+  template:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4l-5.3 5.3a2 2 0 0 0 2.8 2.8l5.3-5.3a4 4 0 0 0 5.4-5.4l-2 2-3-3 2-2Z"></path></svg>',
+};
+const IconShield = {
+  template:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 20 7v5c0 5-3.5 8.5-8 9-4.5-.5-8-4-8-9V7l8-4Z"></path></svg>',
+};
+const IconSearch = {
+  template:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>',
+};
+
+const activities: Array<{
+  id: ViewId;
+  label: string;
+  hint: string;
+  icon: typeof IconConsole;
+}> = [
+  { id: "console", label: "Console", hint: "Cockpit", icon: IconConsole },
+  { id: "llm", label: "LLM", hint: "Models", icon: IconBrain },
+  { id: "tools", label: "Tools", hint: "Policies", icon: IconTools },
+  { id: "security", label: "Security", hint: "Sandbox", icon: IconShield },
+];
+
+function navigateTo(view: ViewId) {
   if (currentView.value === view) return;
   void router.push({ name: view });
 }
+
+onMounted(() => {
+  void initKernelStore();
+});
 </script>
 
 <template>
-  <div class="shell">
-    <div class="shell-main">
-      <header class="topbar">
-        <div class="brand">
-          <div class="brand-mark">TH</div>
-          <div class="brand-copy">
-            <span class="brand-title">TauriHands</span>
-            <span class="brand-sub">{{ pageMeta.subtitle }}</span>
+  <div class="app-shell">
+    <div class="app-backdrop"></div>
+    <div class="app-frame">
+      <div class="aurora-bg" aria-hidden="true">
+        <div class="aurora-flow"></div>
+        <div class="aurora-ribbon ribbon-1"></div>
+        <div class="aurora-ribbon ribbon-2"></div>
+        <div class="aurora-item item-1"></div>
+        <div class="aurora-item item-2"></div>
+        <div class="aurora-item item-3"></div>
+        <div class="aurora-item item-4"></div>
+        <div class="aurora-item item-5"></div>
+      </div>
+      <header class="app-header">
+        <div class="app-header__left">
+          <div class="brand-badge">
+            <component :is="IconCore" class="h-5 w-5" />
+          </div>
+          <div class="header-block">
+            <p class="brand-title">System Core</p>
+            <h1 class="brand-subtitle">HandsFlow - AI Development Agent</h1>
+            <div class="header-chip">
+              Workspace <strong>{{ workspaceName }}</strong>
+            </div>
           </div>
         </div>
 
-        <nav class="topbar-tabs">
-          <button
-            v-for="item in navItems"
-            :key="item.id"
-            type="button"
-            class="tab"
-            :class="{ active: currentView === item.id }"
-            @click="goTo(item.id)"
-          >
-            <span class="tab-label">{{ item.label }}</span>
-            <span class="tab-hint">{{ item.hint }}</span>
-          </button>
-        </nav>
+        <div class="app-header__center">
+          <div class="header-block center">
+            <div class="header-title">System Core Online</div>
+            <div class="header-search">
+              <component :is="IconSearch" class="h-3 w-3 text-accent" />
+              Search / Command
+            </div>
+            <div class="core-status">
+              <span class="core-pulse"></span>
+              Core Online
+            </div>
+          </div>
+        </div>
 
-        <div class="topbar-status">
-          <span class="status-label">{{ pageMeta.title }}</span>
-          <span class="status-desc">{{ pageMeta.description }}</span>
+        <div class="app-header__right">
+          <div class="meta-card">
+            <span>Model</span>
+            <strong>GPT-4</strong>
+            <div class="meta-pill">Power {{ powerPercent }}%</div>
+          </div>
+          <div class="meta-card">
+            <span>Strategy</span>
+            <strong>{{ strategyLabel }}</strong>
+            <div class="meta-pill">Active</div>
+          </div>
         </div>
       </header>
 
-      <main class="content">
-        <RouterView />
-      </main>
+      <div class="app-body" :class="{ 'with-rail': showSecondarySidebar }">
+        <aside class="primary-nav">
+          <button
+            v-for="item in activities"
+            :key="item.id"
+            type="button"
+            class="nav-button"
+            :class="{ 'is-active': currentView === item.id }"
+            @click="navigateTo(item.id)"
+          >
+            <component :is="item.icon" />
+            <span>{{ item.label }}</span>
+          </button>
+        </aside>
+
+        <aside v-if="showSecondarySidebar" class="system-rail">
+          <div class="system-rail__header">System</div>
+          <div class="system-card">
+            <div class="header-chip">
+              Core <strong :class="agentStateClass">{{ agentState }}</strong>
+            </div>
+            <div class="text-xs text-text-dim">{{ workspacePath }}</div>
+            <div class="system-row">
+              <span>Run</span>
+              <strong>{{ shortRunId }}</strong>
+            </div>
+            <div class="system-row">
+              <span>Session</span>
+              <strong>{{ sessionId }}</strong>
+            </div>
+            <div class="system-row">
+              <span>Budget</span>
+              <strong>{{ budgetLabel }}</strong>
+            </div>
+            <div class="h-1.5 rounded-full bg-bg-active">
+              <div
+                class="h-full rounded-full bg-accent shadow-glow shadow-accent/60"
+                :style="{ width: `${budgetPercent}%` }"
+              ></div>
+            </div>
+          </div>
+
+          <div class="system-card">
+            <span class="text-[11px] uppercase tracking-[0.28em] text-text-dim">Live Signal</span>
+            <div v-if="activeTool">
+              <strong class="text-accent">{{ activeTool.tool }}</strong>
+              <div class="text-text-muted">{{ activeTool.detail }}</div>
+            </div>
+            <div v-else-if="isStreaming">
+              <strong class="text-accent">LLM streaming</strong>
+              <div class="text-text-muted">{{ streamPreview || "..." }}</div>
+            </div>
+            <div v-else class="text-text-dim">Awaiting command.</div>
+          </div>
+
+          <div class="system-card">
+            <span class="text-[11px] uppercase tracking-[0.28em] text-text-dim">Tool Activity</span>
+            <div class="system-list">
+              <div class="system-row">
+                <span>Total</span>
+                <strong>{{ toolStats.total }}</strong>
+              </div>
+              <div class="system-row">
+                <span>Running</span>
+                <strong>{{ toolStats.running }}</strong>
+              </div>
+              <div class="system-row">
+                <span>OK</span>
+                <strong>{{ toolStats.ok }}</strong>
+              </div>
+              <div class="system-row">
+                <span>Error</span>
+                <strong>{{ toolStats.error }}</strong>
+              </div>
+            </div>
+            <div class="h-1.5 rounded-full bg-bg-active">
+              <div
+                class="h-full rounded-full bg-accent-lime shadow-glow shadow-accent/60"
+                :style="{ width: `${successPercent}%` }"
+              ></div>
+            </div>
+          </div>
+        </aside>
+
+        <main class="app-main">
+          <section class="app-main__viewport">
+            <router-view v-slot="{ Component }">
+              <transition name="fade" mode="out-in">
+                <component :is="Component" class="animate-rise" />
+              </transition>
+            </router-view>
+          </section>
+        </main>
+      </div>
+
+      <footer class="app-footer">
+        <div class="header-chip">
+          Status <strong :class="agentStateClass">{{ agentState }}</strong>
+        </div>
+        <div class="header-chip">
+          Run <strong>{{ shortRunId }}</strong>
+        </div>
+        <div class="header-chip">
+          Workspace <strong>{{ workspaceName }}</strong>
+        </div>
+        <div>Tauri v2.0.0</div>
+      </footer>
     </div>
   </div>
 </template>
 
-<style scoped>
-.shell {
-  min-height: 100vh;
-  height: 100vh;
-  padding: 20px;
-  display: flex;
-  flex-direction: column;
-}
-
-.shell-main {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  flex: 1;
-  min-height: 0;
-}
-
-.topbar {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  gap: 18px;
-  align-items: center;
-  padding: 16px 18px;
-  border-radius: 18px;
-  background: var(--panel-strong);
-  border: 1px solid var(--line);
-  box-shadow: var(--shadow);
-  backdrop-filter: blur(14px);
-}
-
-.brand {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.brand-mark {
-  width: 36px;
-  height: 36px;
-  border-radius: 12px;
-  display: grid;
-  place-items: center;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  font-size: 0.7rem;
-  color: #05060a;
-  background: linear-gradient(135deg, rgba(45, 246, 255, 0.9), rgba(182, 255, 75, 0.85));
-  box-shadow: 0 0 18px rgba(45, 246, 255, 0.35);
-}
-
-.brand-copy {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.brand-title {
-  font-size: 0.9rem;
-  text-transform: uppercase;
-  letter-spacing: 0.22em;
-  color: #e6f3ff;
-}
-
-.brand-sub {
-  font-size: 0.65rem;
-  text-transform: uppercase;
-  letter-spacing: 0.2em;
-  color: #8aa0b7;
-}
-
-.topbar-tabs {
-  display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: minmax(0, 1fr);
-  align-items: center;
-  gap: 8px;
-  padding: 6px;
-  border-radius: 999px;
-  background: var(--panel-glass);
-  border: 1px solid var(--line);
-}
-
-.tab {
-  border-radius: 999px;
-  border: 1px solid transparent;
-  padding: 8px 14px;
-  display: grid;
-  gap: 2px;
-  background: transparent;
-  color: #9bb0c6;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.tab-label {
-  font-size: 0.7rem;
-  text-transform: uppercase;
-  letter-spacing: 0.16em;
-}
-
-.tab-hint {
-  font-size: 0.65rem;
-  color: rgba(138, 160, 183, 0.8);
-}
-
-.tab.active {
-  border-color: rgba(45, 246, 255, 0.6);
-  color: #2df6ff;
-  background: rgba(45, 246, 255, 0.12);
-}
-
-.tab:hover {
-  border-color: rgba(45, 246, 255, 0.4);
-  color: #2df6ff;
-}
-
-.topbar-status {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 4px;
-  text-align: right;
-}
-
-.status-label {
-  font-size: 0.7rem;
-  text-transform: uppercase;
-  letter-spacing: 0.18em;
-  color: #b6ff4b;
-}
-
-.status-desc {
-  max-width: 260px;
-  font-size: 0.75rem;
-  color: #8aa0b7;
-}
-
-.content {
-  flex: 1;
-  min-height: 0;
-}
-
-@media (max-width: 1200px) {
-  .topbar {
-    grid-template-columns: 1fr;
-    align-items: flex-start;
-  }
-
-  .topbar-status {
-    align-items: flex-start;
-    text-align: left;
-  }
-
-}
-
-@media (max-width: 720px) {
-  .shell {
-    padding: 14px;
-  }
-
-  .topbar-tabs {
-    grid-auto-flow: row;
-  }
-}
-</style>

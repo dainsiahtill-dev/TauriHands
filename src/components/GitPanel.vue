@@ -119,7 +119,7 @@ onMounted(() => {
 
 .error {
   margin: 0;
-  color: #ff6363;
+  color: var(--status-error);
 }
 
 .empty {
@@ -133,3 +133,4 @@ onMounted(() => {
   color: var(--text-secondary);
 }
 </style>
+

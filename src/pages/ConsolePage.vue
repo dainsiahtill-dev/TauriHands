@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, reactive } from "vue";
+import { computed, ref } from "vue";
 import WorkbenchTabs from "../components/WorkbenchTabs.vue";
 import PanelShell from "../components/PanelShell.vue";
 import MissionPanel from "../components/MissionPanel.vue";
@@ -9,6 +9,7 @@ import TerminalPanel from "../components/TerminalPanel.vue";
 import DiffPanel from "../components/DiffPanel.vue";
 import GitPanel from "../components/GitPanel.vue";
 import TimelinePanel from "../components/TimelinePanel.vue";
+import { agentStore } from "../agents/orchestrator";
 
 const tabs = [
   { id: "mission", label: "Mission" },
@@ -23,16 +24,52 @@ const tabs = [
 const focusPanel = ref("loop");
 const rightTab = ref("timeline");
 
-const layout = reactive({
-  leftWidth: 320,
-  rightWidth: 360,
+const { state } = agentStore;
+const run = computed(() => state.run);
+const agentState = computed(() => run.value?.agentState ?? "IDLE");
+const runId = computed(() => run.value?.runId ?? "-");
+const shortRunId = computed(() => (runId.value ? runId.value.slice(0, 8) : "-"));
+const budget = computed(() => run.value?.budget);
+const budgetLabel = computed(() =>
+  budget.value ? `${budget.value.usedSteps}/${budget.value.maxSteps}` : "-",
+);
+const budgetPercent = computed(() => {
+  const current = budget.value;
+  if (!current || current.maxSteps === 0) return 0;
+  return Math.min(100, Math.round((current.usedSteps / current.maxSteps) * 100));
 });
+const toolCalls = computed(() => state.toolCalls ?? []);
+const activeTool = computed(() => toolCalls.value.find((call) => call.status === "running"));
+const toolStats = computed(() => {
+  const stats = { total: 0, running: 0, ok: 0, error: 0 };
+  for (const call of toolCalls.value) {
+    stats.total += 1;
+    if (call.status === "running") stats.running += 1;
+    if (call.status === "ok") stats.ok += 1;
+    if (call.status === "error") stats.error += 1;
+  }
+  return stats;
+});
+const successPercent = computed(() => {
+  if (!toolStats.value.total) return 0;
+  return Math.round((toolStats.value.ok / toolStats.value.total) * 100);
+});
+const isStreaming = computed(() => state.llmStream.active);
+const streamPreview = computed(() => state.llmStream.content.slice(0, 120));
 
-const gridResizing = reactive({
-  active: false,
-  pane: "", // 'left' or 'right'
-  startX: 0,
-  startWidth: 0,
+const agentStateClass = computed(() => {
+  switch (agentState.value) {
+    case "RUNNING":
+      return "text-accent";
+    case "AWAITING_USER":
+      return "text-accent-lime";
+    case "ERROR":
+      return "text-status-warning";
+    case "PAUSED":
+      return "text-status-info";
+    default:
+      return "text-text-muted";
+  }
 });
 
 const rightPanelMap = {
@@ -59,69 +96,109 @@ function handleSelectTab(id: string) {
     rightTab.value = id;
   }
 }
-
-function startGridResize(e: MouseEvent, pane: string) {
-  gridResizing.active = true;
-  gridResizing.pane = pane;
-  gridResizing.startX = e.clientX;
-  gridResizing.startWidth = pane === "left" ? layout.leftWidth : layout.rightWidth;
-  window.addEventListener("mousemove", onGridResize);
-  window.addEventListener("mouseup", stopGridResize);
-  document.body.style.cursor = "col-resize";
-  e.preventDefault();
-}
-
-function onGridResize(e: MouseEvent) {
-  if (!gridResizing.active) return;
-  const dx = e.clientX - gridResizing.startX;
-  if (gridResizing.pane === "left") {
-    layout.leftWidth = Math.max(240, Math.min(520, gridResizing.startWidth + dx));
-  } else {
-    layout.rightWidth = Math.max(280, Math.min(600, gridResizing.startWidth - dx));
-  }
-}
-
-function stopGridResize() {
-  gridResizing.active = false;
-  window.removeEventListener("mousemove", onGridResize);
-  window.removeEventListener("mouseup", stopGridResize);
-  document.body.style.cursor = "";
-}
 </script>
 
 <template>
   <div class="cockpit">
-    <WorkbenchTabs :tabs="tabs" :active="focusPanel" @select="handleSelectTab" />
+    <div class="cockpit-header">
+      <div class="cockpit-title">
+        <p class="eyebrow">System</p>
+        <h2>Mission Cockpit</h2>
+      </div>
+      <WorkbenchTabs :tabs="tabs" :active="focusPanel" @select="handleSelectTab" />
+    </div>
 
-    <div
-      class="cockpit-grid"
-      :style="{ '--left-width': layout.leftWidth + 'px', '--right-width': layout.rightWidth + 'px' }"
-    >
+    <div class="cockpit-grid">
       <section class="rail left-rail">
-        <PanelShell title="Mission" subtitle="Task control" :class="{ focused: focusPanel === 'mission' }">
+        <PanelShell title="Workspace" subtitle="Mission control" :class="{ focused: focusPanel === 'mission' }">
           <MissionPanel />
         </PanelShell>
-        <PanelShell title="Plan" subtitle="Checklist" :class="{ focused: focusPanel === 'plan' }">
+        <PanelShell title="Plan" subtitle="Execution checklist" :class="{ focused: focusPanel === 'plan' }">
           <PlanPanel />
         </PanelShell>
       </section>
 
-      <div class="grid-resizer left-resizer" @mousedown="startGridResize($event, 'left')"></div>
-
       <section class="rail center-rail">
-        <PanelShell title="Loop" subtitle="Execution" :class="{ focused: focusPanel === 'loop' }">
+        <PanelShell title="Execution Loop" subtitle="Plan -> Act -> Observe" :class="{ focused: focusPanel === 'loop' }">
           <LoopPanel />
-        </PanelShell>
-        <PanelShell title="Terminal" subtitle="Evidence" :class="{ focused: focusPanel === 'terminal' }">
-          <TerminalPanel />
         </PanelShell>
       </section>
 
-      <div class="grid-resizer right-resizer" @mousedown="startGridResize($event, 'right')"></div>
-
       <section class="rail right-rail">
-        <PanelShell :title="rightPanelTitle" subtitle="Evidence" :class="{ focused: focusPanel === rightTab }">
+        <PanelShell :title="rightPanelTitle" subtitle="Evidence layer" :class="{ focused: focusPanel === rightTab }">
+          <template #actions>
+            <div class="hud-tabs">
+              <button
+                v-for="tab in ['diff', 'git', 'timeline']"
+                :key="tab"
+                type="button"
+                class="hud-tab"
+                :class="{ 'is-active': rightTab === tab }"
+                @click="rightTab = tab"
+              >
+                {{ tab }}
+              </button>
+            </div>
+          </template>
           <component :is="rightPanelComponent" />
+        </PanelShell>
+
+        <PanelShell title="Telemetry" subtitle="System traffic">
+          <div class="telemetry">
+            <div class="telemetry-row">
+              <span class="telemetry-label">Core status</span>
+              <span class="telemetry-value" :class="agentStateClass">{{ agentState }}</span>
+            </div>
+            <div class="telemetry-row">
+              <span>Run</span>
+              <span class="telemetry-value text-text-main">{{ shortRunId }}</span>
+            </div>
+            <div class="telemetry-row">
+              <span>Budget</span>
+              <span class="telemetry-value text-text-main">{{ budgetLabel }}</span>
+            </div>
+            <div class="telemetry-bar">
+              <div class="telemetry-bar__fill" :style="{ width: `${budgetPercent}%` }"></div>
+            </div>
+            <div class="telemetry-grid">
+              <div class="telemetry-card">
+                <span>Total</span>
+                <strong>{{ toolStats.total }}</strong>
+              </div>
+              <div class="telemetry-card">
+                <span>Running</span>
+                <strong>{{ toolStats.running }}</strong>
+              </div>
+              <div class="telemetry-card">
+                <span>OK</span>
+                <strong>{{ toolStats.ok }}</strong>
+              </div>
+              <div class="telemetry-card">
+                <span>Error</span>
+                <strong>{{ toolStats.error }}</strong>
+              </div>
+            </div>
+            <div class="telemetry-bar slim">
+              <div class="telemetry-bar__fill success" :style="{ width: `${successPercent}%` }"></div>
+            </div>
+            <div class="telemetry-feed">
+              <div v-if="activeTool">
+                <p class="feed-title">{{ activeTool.tool }}</p>
+                <p class="feed-detail">{{ activeTool.detail }}</p>
+              </div>
+              <div v-else-if="isStreaming">
+                <p class="feed-title">LLM streaming</p>
+                <p class="feed-detail">{{ streamPreview || "..." }}</p>
+              </div>
+              <p v-else class="feed-idle">No activity yet.</p>
+            </div>
+          </div>
+        </PanelShell>
+      </section>
+
+      <section class="rail bottom-rail">
+        <PanelShell title="Terminal" subtitle="Command console" :class="{ focused: focusPanel === 'terminal' }" :no-padding="true">
+          <TerminalPanel />
         </PanelShell>
       </section>
     </div>
@@ -136,38 +213,81 @@ function stopGridResize() {
   min-height: 0;
 }
 
+.cockpit-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  border-radius: 16px;
+  border: 1px solid rgba(var(--line-rgb), 0.38);
+  background: linear-gradient(90deg, rgba(9, 16, 30, 0.9), rgba(7, 12, 22, 0.82));
+  box-shadow: inset 0 0 18px rgba(var(--accent-rgb), 0.12);
+  position: relative;
+}
+
+.cockpit-header::after {
+  content: "";
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  top: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, rgba(var(--accent-rgb), 0.6), transparent);
+}
+
+.cockpit-title {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cockpit-title h2 {
+  margin: 0;
+  font-size: 0.95rem;
+  text-transform: uppercase;
+  letter-spacing: 0.28em;
+  font-family: "Orbitron", sans-serif;
+  color: var(--text-primary);
+  text-shadow:
+    0 0 12px rgba(var(--accent-rgb), 0.45),
+    0 0 24px rgba(var(--accent-3-rgb), 0.2);
+}
+
 .cockpit-grid {
   display: grid;
-  grid-template-columns: var(--left-width) 6px minmax(0, 1fr) 6px var(--right-width);
-  gap: 0;
+  grid-template-columns: minmax(260px, 320px) minmax(0, 1fr) minmax(280px, 360px);
+  grid-template-rows: minmax(0, 1fr) minmax(200px, 260px);
+  grid-template-areas:
+    "left center right"
+    "bottom bottom bottom";
+  gap: 14px;
   height: 100%;
+  display: grid;
   min-height: 0;
   overflow: hidden;
+  position: relative;
 }
 
-.grid-resizer {
-  width: 6px;
-  cursor: col-resize;
-  background: linear-gradient(
-    180deg,
-    rgba(45, 246, 255, 0.08),
-    rgba(8, 12, 20, 0.08),
-    rgba(45, 246, 255, 0.08)
-  );
-  transition: background 0.2s;
-  z-index: 10;
-}
-
-.grid-resizer:hover,
-.grid-resizer:active {
-  background: rgba(45, 246, 255, 0.2);
+.cockpit-grid::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 50% 35%, rgba(var(--accent-rgb), 0.08), transparent 45%),
+    radial-gradient(circle at 88% 70%, rgba(var(--accent-3-rgb), 0.08), transparent 40%);
+  pointer-events: none;
+  z-index: 0;
 }
 
 .rail {
   display: grid;
-  gap: 12px;
+  gap: 14px;
   min-height: 0;
   overflow: hidden;
+  position: relative;
+  z-index: 1;
 }
 
 .left-rail,
@@ -175,27 +295,150 @@ function stopGridResize() {
   grid-auto-rows: minmax(0, 1fr);
 }
 
+.left-rail {
+  grid-area: left;
+}
+
 .center-rail {
+  grid-area: center;
   grid-auto-rows: minmax(0, 1fr);
 }
 
+.right-rail {
+  grid-area: right;
+  grid-template-rows: minmax(0, 1fr) minmax(0, 0.9fr);
+}
+
+.bottom-rail {
+  grid-area: bottom;
+  min-height: 0;
+}
+
 .focused {
-  box-shadow: 0 0 0 1px rgba(45, 246, 255, 0.35), var(--shadow);
+  box-shadow: 0 0 0 1px rgba(var(--accent-rgb), 0.5), 0 0 26px rgba(var(--accent-rgb), 0.2);
+}
+
+.telemetry {
+  display: grid;
+  gap: 10px;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.telemetry-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: var(--text-tertiary);
+}
+
+.telemetry-label {
+  color: var(--text-tertiary);
+}
+
+.telemetry-value {
+  font-size: 0.7rem;
+  letter-spacing: 0.12em;
+  text-transform: none;
+  font-family: "JetBrains Mono", monospace;
+}
+
+.telemetry-bar {
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(var(--line-rgb), 0.2);
+  overflow: hidden;
+}
+
+.telemetry-bar.slim {
+  height: 4px;
+}
+
+.telemetry-bar__fill {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, rgba(var(--accent-rgb), 0.7), rgba(var(--accent-3-rgb), 0.6));
+  box-shadow: 0 0 14px rgba(var(--accent-rgb), 0.35);
+}
+
+.telemetry-bar__fill.success {
+  background: linear-gradient(90deg, rgba(var(--accent-2-rgb), 0.8), rgba(var(--accent-rgb), 0.6));
+}
+
+.telemetry-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.telemetry-card {
+  border-radius: 10px;
+  border: 1px solid rgba(var(--line-rgb), 0.28);
+  background: linear-gradient(140deg, rgba(9, 16, 30, 0.85), rgba(7, 12, 22, 0.75));
+  box-shadow: inset 0 0 12px rgba(var(--accent-rgb), 0.08);
+  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: var(--text-tertiary);
+}
+
+.telemetry-card strong {
+  font-size: 0.75rem;
+  color: var(--text-primary);
+}
+
+.telemetry-feed {
+  border-top: 1px solid rgba(var(--line-rgb), 0.24);
+  padding-top: 8px;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.feed-title {
+  margin: 0 0 4px;
+  color: var(--accent);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  text-shadow: 0 0 10px rgba(var(--accent-rgb), 0.4);
+}
+
+.feed-detail {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 0.75rem;
+  word-break: break-word;
+}
+
+.feed-idle {
+  margin: 0;
+  color: var(--text-tertiary);
 }
 
 @media (max-width: 1200px) {
   .cockpit-grid {
     grid-template-columns: 1fr;
-    gap: 12px;
+    grid-template-rows: auto;
+    grid-template-areas:
+      "left"
+      "center"
+      "right"
+      "bottom";
     overflow: auto;
   }
 
-  .grid-resizer {
-    display: none;
-  }
-
-  .rail {
-    grid-auto-rows: auto;
+  .right-rail {
+    grid-template-rows: auto;
   }
 }
 </style>
+

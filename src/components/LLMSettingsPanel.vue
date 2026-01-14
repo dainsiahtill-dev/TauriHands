@@ -47,7 +47,85 @@ const modelsByProvider: Record<ProviderId, string[]> = {
   azure: ["gpt-4o", "gpt-4.1", "gpt-35-turbo"],
 };
 
-const modelOptions = computed(() => modelsByProvider[provider.value] ?? []);
+type ProviderConfig = {
+  apiKey: string;
+  baseUrl: string;
+  model: string;
+};
+
+function buildProviderDefaults(): Record<ProviderId, ProviderConfig> {
+  return {
+    openai: { apiKey: "", baseUrl: "", model: modelsByProvider.openai[0] ?? "" },
+    anthropic: { apiKey: "", baseUrl: "", model: modelsByProvider.anthropic[0] ?? "" },
+    local: { apiKey: "", baseUrl: "", model: modelsByProvider.local[0] ?? "" },
+    ollama: { apiKey: "", baseUrl: "", model: modelsByProvider.ollama[0] ?? "" },
+    azure: { apiKey: "", baseUrl: "", model: modelsByProvider.azure[0] ?? "" },
+  };
+}
+
+const providerDefaults = buildProviderDefaults();
+const providerConfigs = ref<Record<ProviderId, ProviderConfig>>({
+  ...providerDefaults,
+});
+
+function snapshotProviderConfig(): ProviderConfig {
+  return {
+    apiKey: apiKey.value,
+    baseUrl: baseUrl.value,
+    model: model.value,
+  };
+}
+
+function resolveProviderConfig(id: ProviderId): ProviderConfig {
+  const stored = providerConfigs.value[id];
+  return {
+    ...providerDefaults[id],
+    ...(stored ?? {}),
+  };
+}
+
+function applyProviderConfig(id: ProviderId) {
+  const config = resolveProviderConfig(id);
+  apiKey.value = config.apiKey;
+  baseUrl.value = config.baseUrl;
+  model.value = config.model;
+}
+
+const ollamaModels = ref<string[]>([]);
+const modelFetchStatus = ref<"idle" | "loading" | "ok" | "error">("idle");
+const modelFetchMessage = ref("");
+const modelFetchAt = ref<number | null>(null);
+
+const modelFetchLabel = computed(() => {
+  if (modelFetchStatus.value === "loading") return "Loading";
+  if (modelFetchStatus.value === "ok") return "Models loaded";
+  if (modelFetchStatus.value === "error") return "Load failed";
+  return "Idle";
+});
+
+const modelTestStatus = ref<"idle" | "running" | "ok" | "error">("idle");
+const modelTestMessage = ref("");
+const modelTestDetail = ref("");
+
+const modelTestLabel = computed(() => {
+  if (modelTestStatus.value === "running") return "Testing";
+  if (modelTestStatus.value === "ok") return "Model ready";
+  if (modelTestStatus.value === "error") return "Model error";
+  return "Idle";
+});
+
+const isLocalProvider = computed(() => provider.value === "local" || provider.value === "ollama");
+const modelOptions = computed(() => {
+  const baseOptions =
+    isLocalProvider.value && ollamaModels.value.length
+      ? ollamaModels.value
+      : modelsByProvider[provider.value] ?? [];
+  const current = model.value.trim();
+  if (current && !baseOptions.includes(current)) {
+    return [current, ...baseOptions];
+  }
+  return baseOptions;
+});
 const baseUrlPlaceholder = computed(() => {
   if (provider.value === "ollama") return "http://<LAN-IP>:11434";
   if (provider.value === "local") return "http://localhost:11434";
@@ -55,9 +133,49 @@ const baseUrlPlaceholder = computed(() => {
   return "https://api.openai.com/v1";
 });
 
-watch(provider, (next) => {
-  const nextModels = modelsByProvider[next];
-  model.value = nextModels?.[0] ?? "";
+let isHydrating = false;
+
+watch(provider, (next, prev) => {
+  if (isHydrating) return;
+  if (prev) {
+    providerConfigs.value = {
+      ...providerConfigs.value,
+      [prev]: snapshotProviderConfig(),
+    };
+  }
+  applyProviderConfig(next);
+  const nextModels = modelOptions.value;
+  if (!model.value) {
+    model.value = nextModels?.[0] ?? "";
+  }
+  if (next !== "local" && next !== "ollama") {
+    modelFetchStatus.value = "idle";
+    modelFetchMessage.value = "";
+    modelFetchAt.value = null;
+    modelTestStatus.value = "idle";
+    modelTestMessage.value = "";
+    modelTestDetail.value = "";
+    ollamaModels.value = [];
+  } else if (prev && prev !== next) {
+    ollamaModels.value = [];
+    modelFetchStatus.value = "idle";
+    modelFetchMessage.value = "";
+    modelFetchAt.value = null;
+    modelTestStatus.value = "idle";
+    modelTestMessage.value = "";
+    modelTestDetail.value = "";
+  }
+});
+
+watch(baseUrl, () => {
+  if (!isLocalProvider.value) return;
+  ollamaModels.value = [];
+  modelFetchStatus.value = "idle";
+  modelFetchMessage.value = "";
+  modelFetchAt.value = null;
+  modelTestStatus.value = "idle";
+  modelTestMessage.value = "";
+  modelTestDetail.value = "";
 });
 
 const toolToggles = ref([
@@ -104,6 +222,7 @@ type LLMProfile = {
   apiKey: string;
   baseUrl: string;
   model: string;
+  providerConfigs?: Partial<Record<ProviderId, ProviderConfig>>;
   temperature: number;
   topP: number;
   maxTokens: number;
@@ -139,11 +258,13 @@ const saveStatusLabel = computed(() => {
 });
 
 function resetDefaults() {
+  isHydrating = true;
+  providerConfigs.value = {
+    ...providerDefaults,
+  };
   provider.value = "openai";
+  applyProviderConfig("openai");
   profileName.value = "Default";
-  apiKey.value = "";
-  baseUrl.value = "";
-  model.value = modelsByProvider.openai[0];
   prompt.value =
     "You are a precise coding agent. Use tools, summarize changes, and avoid unsafe commands.";
   contextPolicy.value = "adaptive";
@@ -152,19 +273,32 @@ function resetDefaults() {
   maxTerminalLines.value = 800;
   redactSecrets.value = true;
   auditLogs.value = true;
+  ollamaModels.value = [];
+  modelFetchStatus.value = "idle";
+  modelFetchMessage.value = "";
+  modelFetchAt.value = null;
+  modelTestStatus.value = "idle";
+  modelTestMessage.value = "";
+  modelTestDetail.value = "";
   toolToggles.value = toolToggles.value.map((tool) => ({
     ...tool,
     enabled: ["fs.write_file", "tests.run"].includes(tool.id) ? false : true,
   }));
+  isHydrating = false;
 }
 
 function buildProfile(): LLMProfile {
+  const configs: Partial<Record<ProviderId, ProviderConfig>> = {
+    ...providerConfigs.value,
+    [provider.value]: snapshotProviderConfig(),
+  };
   return {
     profileName: profileName.value.trim() || "Default",
     provider: provider.value,
     apiKey: apiKey.value,
     baseUrl: baseUrl.value,
     model: model.value,
+    providerConfigs: configs,
     temperature: DEFAULT_RUNTIME.temperature,
     topP: DEFAULT_RUNTIME.topP,
     maxTokens: DEFAULT_RUNTIME.maxTokens,
@@ -186,12 +320,34 @@ function buildProfile(): LLMProfile {
 }
 
 function applyProfile(profile: LLMProfile) {
+  isHydrating = true;
   profileName.value = profile.profileName;
+  const defaults = buildProviderDefaults();
+  const storedConfigs = profile.providerConfigs ?? {};
+  const mergedConfigs: Record<ProviderId, ProviderConfig> = {
+    ...defaults,
+  };
+  (Object.keys(defaults) as ProviderId[]).forEach((id) => {
+    const stored = storedConfigs[id];
+    if (stored) {
+      mergedConfigs[id] = { ...defaults[id], ...stored };
+    }
+  });
+  if (profile.provider in mergedConfigs) {
+    mergedConfigs[profile.provider] = {
+      ...mergedConfigs[profile.provider],
+      apiKey: profile.apiKey,
+      baseUrl: profile.baseUrl,
+      model: profile.model,
+    };
+  }
+  providerConfigs.value = mergedConfigs;
   provider.value = profile.provider;
-  apiKey.value = profile.apiKey;
-  baseUrl.value = profile.baseUrl;
-  const models = modelsByProvider[profile.provider] ?? [];
-  model.value = models.includes(profile.model) ? profile.model : models[0] ?? "";
+  applyProviderConfig(profile.provider);
+  const nextModels = modelOptions.value;
+  if (!model.value) {
+    model.value = nextModels?.[0] ?? "";
+  }
   prompt.value = profile.prompt;
   contextPolicy.value = profile.contextPolicy;
   memoryMode.value = profile.memoryMode;
@@ -204,6 +360,7 @@ function applyProfile(profile: LLMProfile) {
     ...tool,
     enabled: togglesById.get(tool.id) ?? tool.enabled,
   }));
+  isHydrating = false;
 }
 
 async function loadProfile() {
@@ -258,6 +415,10 @@ function formatTime(timestamp: number) {
   return new Date(timestamp).toLocaleTimeString();
 }
 
+const modelFetchTime = computed(() =>
+  modelFetchAt.value ? formatTime(modelFetchAt.value) : "",
+);
+
 function normalizeBaseUrl(value: string) {
   return value.trim().replace(/\/+$/, "");
 }
@@ -273,6 +434,142 @@ function resolveBaseUrl() {
   if (provider.value === "local") return "http://localhost:11434";
   if (provider.value === "ollama") return "";
   return "";
+}
+
+function resolveOllamaBaseUrl() {
+  if (baseUrl.value.trim()) return normalizeBaseUrl(baseUrl.value);
+  if (provider.value === "local") return "http://localhost:11434";
+  return "";
+}
+
+function parseOllamaTags(payload: unknown) {
+  if (!payload || typeof payload !== "object") return [];
+  const record = payload as { models?: Array<{ name?: string }> };
+  if (!Array.isArray(record.models)) return [];
+  return record.models.map((item) => item.name).filter((name): name is string => Boolean(name));
+}
+
+function parseOpenAiModels(payload: unknown) {
+  if (!payload || typeof payload !== "object") return [];
+  const record = payload as { data?: Array<{ id?: string }> };
+  if (!Array.isArray(record.data)) return [];
+  return record.data.map((item) => item.id).filter((name): name is string => Boolean(name));
+}
+
+async function fetchOllamaModels() {
+  modelFetchStatus.value = "loading";
+  modelFetchMessage.value = "";
+  modelFetchAt.value = null;
+
+  const base = resolveOllamaBaseUrl();
+  if (!base) {
+    modelFetchStatus.value = "error";
+    modelFetchMessage.value = "Base URL is required for Ollama.";
+    return;
+  }
+
+  const endpoints = [
+    { url: `${base}/api/tags`, parser: parseOllamaTags },
+    { url: `${base}/v1/models`, parser: parseOpenAiModels },
+  ];
+
+  let lastError = "";
+  for (const endpoint of endpoints) {
+    try {
+      const response = await fetch(endpoint.url, { method: "GET" });
+      if (!response.ok) {
+        lastError = `HTTP ${response.status} ${response.statusText}`;
+        continue;
+      }
+      const payload = (await response.json()) as unknown;
+      const models = endpoint.parser(payload);
+      const uniqueModels = Array.from(new Set(models)).sort();
+      if (uniqueModels.length > 0) {
+        ollamaModels.value = uniqueModels;
+        modelFetchStatus.value = "ok";
+        modelFetchMessage.value = `Loaded ${uniqueModels.length} models from ${endpoint.url}`;
+        modelFetchAt.value = Date.now();
+        if (isLocalProvider.value && !uniqueModels.includes(model.value)) {
+          model.value = uniqueModels[0];
+        }
+        return;
+      }
+      lastError = "No models found.";
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error);
+    }
+  }
+
+  modelFetchStatus.value = "error";
+  modelFetchMessage.value = lastError || "Unable to load models.";
+}
+
+async function testOllamaModel() {
+  modelTestStatus.value = "running";
+  modelTestMessage.value = "";
+  modelTestDetail.value = "";
+
+  const base = resolveOllamaBaseUrl();
+  if (!base) {
+    modelTestStatus.value = "error";
+    modelTestMessage.value = "Base URL is required for Ollama.";
+    return;
+  }
+
+  const targetModel = model.value.trim();
+  if (!targetModel) {
+    modelTestStatus.value = "error";
+    modelTestMessage.value = "Select a model to test.";
+    return;
+  }
+
+  try {
+    const showResponse = await fetch(`${base}/api/show`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: targetModel }),
+    });
+    if (showResponse.ok) {
+      modelTestStatus.value = "ok";
+      modelTestMessage.value = `Model "${targetModel}" is available.`;
+      return;
+    }
+  } catch (error) {
+    modelTestDetail.value = error instanceof Error ? error.message : String(error);
+  }
+
+  try {
+    const response = await fetch(`${base}/v1/models`, { method: "GET" });
+    if (response.ok) {
+      const payload = (await response.json()) as unknown;
+      const models = parseOpenAiModels(payload);
+      if (models.includes(targetModel)) {
+        modelTestStatus.value = "ok";
+        modelTestMessage.value = `Model "${targetModel}" is available.`;
+        return;
+      }
+    }
+  } catch (error) {
+    modelTestDetail.value = error instanceof Error ? error.message : String(error);
+  }
+
+  try {
+    const response = await fetch(`${base}/api/tags`, { method: "GET" });
+    if (response.ok) {
+      const payload = (await response.json()) as unknown;
+      const models = parseOllamaTags(payload);
+      if (models.includes(targetModel)) {
+        modelTestStatus.value = "ok";
+        modelTestMessage.value = `Model "${targetModel}" is available.`;
+        return;
+      }
+    }
+  } catch (error) {
+    modelTestDetail.value = error instanceof Error ? error.message : String(error);
+  }
+
+  modelTestStatus.value = "error";
+  modelTestMessage.value = `Model "${targetModel}" not found.`;
 }
 
 async function testConnection() {
@@ -407,6 +704,45 @@ onMounted(() => {
             <span>API Key</span>
             <input v-model="apiKey" type="password" placeholder="sk-..." />
           </label>
+        </div>
+        <div v-if="isLocalProvider" class="model-tools">
+          <div class="model-tools__actions">
+            <button
+              class="btn ghost"
+              type="button"
+              :disabled="modelFetchStatus === 'loading'"
+              @click="fetchOllamaModels"
+            >
+              {{ modelFetchStatus === "loading" ? "Loading..." : "Load models" }}
+            </button>
+            <button
+              class="btn ghost"
+              type="button"
+              :disabled="modelTestStatus === 'running'"
+              @click="testOllamaModel"
+            >
+              {{ modelTestStatus === "running" ? "Testing..." : "Test model" }}
+            </button>
+            <span class="pill" :data-status="modelFetchStatus">{{ modelFetchLabel }}</span>
+            <span class="pill" :data-status="modelTestStatus">{{ modelTestLabel }}</span>
+          </div>
+          <div v-if="modelFetchMessage" class="hint">{{ modelFetchMessage }}</div>
+          <div v-if="modelFetchTime" class="hint">Last sync: {{ modelFetchTime }}</div>
+          <div v-if="modelTestMessage" class="hint">{{ modelTestMessage }}</div>
+          <pre v-if="modelTestDetail" class="model-detail">{{ modelTestDetail }}</pre>
+          <div v-if="ollamaModels.length" class="model-list">
+            <button
+              v-for="item in ollamaModels"
+              :key="item"
+              type="button"
+              class="model-chip"
+              :class="{ active: model === item }"
+              @click="model = item"
+            >
+              {{ item }}
+            </button>
+          </div>
+          <p v-else class="hint">No models loaded yet.</p>
         </div>
       </section>
 
@@ -545,7 +881,7 @@ onMounted(() => {
 
 .subtitle {
   margin: 0;
-  color: #8aa0b7;
+  color: var(--text-secondary);
   max-width: 520px;
 }
 
@@ -563,19 +899,19 @@ onMounted(() => {
   padding: 6px 10px;
   border-radius: 999px;
   border: 1px solid var(--line);
-  color: #9bb0c6;
+  color: var(--text-secondary);
 }
 
 .save-status[data-status="saved"] {
-  color: #b6ff4b;
-  border-color: rgba(182, 255, 75, 0.4);
-  background: rgba(182, 255, 75, 0.12);
+  color: var(--status-success);
+  border-color: rgba(var(--status-success-rgb), 0.4);
+  background: rgba(var(--status-success-rgb), 0.12);
 }
 
 .save-status[data-status="error"] {
-  color: #ffb84d;
-  border-color: rgba(255, 184, 77, 0.4);
-  background: rgba(255, 184, 77, 0.12);
+  color: var(--status-warning);
+  border-color: rgba(var(--status-warning-rgb), 0.4);
+  background: rgba(var(--status-warning-rgb), 0.12);
 }
 
 .settings-grid {
@@ -601,7 +937,7 @@ onMounted(() => {
   inset: -50% -50% auto auto;
   width: 240px;
   height: 240px;
-  background: radial-gradient(circle, rgba(45, 246, 255, 0.12), transparent 70%);
+  background: radial-gradient(circle, rgba(var(--accent-rgb), 0.12), transparent 70%);
   opacity: 0.6;
   pointer-events: none;
 }
@@ -630,9 +966,28 @@ onMounted(() => {
   letter-spacing: 0.14em;
   padding: 6px 10px;
   border-radius: 999px;
-  border: 1px solid rgba(45, 246, 255, 0.3);
-  color: #2df6ff;
-  background: rgba(45, 246, 255, 0.12);
+  border: 1px solid rgba(var(--accent-rgb), 0.3);
+  color: var(--accent);
+  background: rgba(var(--accent-rgb), 0.12);
+}
+
+.pill[data-status="loading"],
+.pill[data-status="running"] {
+  color: var(--accent);
+  border-color: rgba(var(--accent-rgb), 0.5);
+  background: rgba(var(--accent-rgb), 0.14);
+}
+
+.pill[data-status="ok"] {
+  color: var(--status-success);
+  border-color: rgba(var(--status-success-rgb), 0.5);
+  background: rgba(var(--status-success-rgb), 0.12);
+}
+
+.pill[data-status="error"] {
+  color: var(--status-warning);
+  border-color: rgba(var(--status-warning-rgb), 0.5);
+  background: rgba(var(--status-warning-rgb), 0.12);
 }
 
 .field-grid {
@@ -649,7 +1004,7 @@ onMounted(() => {
   font-size: 0.75rem;
   text-transform: uppercase;
   letter-spacing: 0.16em;
-  color: #9bb0c6;
+  color: var(--text-secondary);
 }
 
 .field-grid label.full {
@@ -663,7 +1018,7 @@ textarea {
   border: 1px solid var(--line);
   padding: 10px 12px;
   background: var(--panel-glass);
-  color: #e6f3ff;
+  color: var(--text-primary);
   font-family: inherit;
 }
 
@@ -675,12 +1030,12 @@ textarea {
 }
 
 input[type="range"] {
-  accent-color: #2df6ff;
+  accent-color: var(--accent);
 }
 
 .range-meta {
   font-size: 0.75rem;
-  color: #9bb0c6;
+  color: var(--text-secondary);
 }
 
 .toggle-row {
@@ -696,11 +1051,11 @@ input[type="range"] {
   align-items: center;
   gap: 8px;
   font-size: 0.8rem;
-  color: #c7d7ec;
+  color: var(--text-soft);
 }
 
 .switch input {
-  accent-color: #b6ff4b;
+  accent-color: var(--status-success);
 }
 
 .tool-grid {
@@ -720,18 +1075,78 @@ input[type="range"] {
   border: 1px solid var(--line);
   background: var(--panel-glass);
   font-size: 0.78rem;
-  color: #c7d7ec;
+  color: var(--text-soft);
 }
 
 .toggle-pill input {
-  accent-color: #2df6ff;
+  accent-color: var(--accent);
 }
 
 .hint {
   font-size: 0.78rem;
-  color: #8aa0b7;
+  color: var(--text-secondary);
   position: relative;
   z-index: 1;
+}
+
+.model-tools {
+  display: grid;
+  gap: 10px;
+  position: relative;
+  z-index: 1;
+}
+
+.model-tools__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.model-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.model-chip {
+  border-radius: 999px;
+  border: 1px solid rgba(var(--line-rgb), 0.4);
+  background: rgba(7, 12, 22, 0.75);
+  color: var(--text-soft);
+  padding: 6px 10px;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.model-chip:hover {
+  border-color: rgba(var(--accent-rgb), 0.5);
+  color: var(--text-primary);
+  box-shadow: 0 0 12px rgba(var(--accent-rgb), 0.18);
+}
+
+.model-chip.active {
+  border-color: rgba(var(--accent-rgb), 0.6);
+  color: var(--accent);
+  background: rgba(var(--accent-rgb), 0.12);
+  box-shadow: 0 0 14px rgba(var(--accent-rgb), 0.2);
+}
+
+.model-detail {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(5, 8, 14, 0.7);
+  border: 1px solid var(--line);
+  font-size: 0.7rem;
+  color: var(--text-soft);
+  font-family: "JetBrains Mono", monospace;
+  white-space: pre-wrap;
+  max-height: 160px;
+  overflow: auto;
 }
 
 .test-logs {
@@ -759,18 +1174,18 @@ input[type="range"] {
 }
 
 .log-time {
-  color: #9bb0c6;
+  color: var(--text-secondary);
 }
 
 .log-level {
   text-transform: uppercase;
   letter-spacing: 0.12em;
   font-size: 0.6rem;
-  color: #b6ff4b;
+  color: var(--status-success);
 }
 
 .log-message {
-  color: #e6f3ff;
+  color: var(--text-primary);
 }
 
 .log-detail {
@@ -780,7 +1195,7 @@ input[type="range"] {
   background: rgba(5, 8, 14, 0.7);
   border: 1px solid var(--line);
   font-size: 0.7rem;
-  color: #c7d7ec;
+  color: var(--text-soft);
   font-family: "JetBrains Mono", monospace;
   white-space: pre-wrap;
   max-height: 220px;
@@ -807,7 +1222,7 @@ input[type="range"] {
   font-size: 0.7rem;
   text-transform: uppercase;
   letter-spacing: 0.2em;
-  color: #b6ff4b;
+  color: var(--status-success);
 }
 
 @media (max-width: 1100px) {
@@ -841,3 +1256,5 @@ input[type="range"] {
   }
 }
 </style>
+
+

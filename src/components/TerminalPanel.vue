@@ -53,6 +53,18 @@ let resizeObserver: ResizeObserver | null = null;
 let sessionCounter = 1;
 const dragSessionId = ref<string | null>(null);
 
+function cssVar(name: string, fallback: string) {
+  if (typeof window === "undefined") return fallback;
+  const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return value || fallback;
+}
+
+function cssRgbVar(name: string, fallback: string) {
+  if (typeof window === "undefined") return fallback;
+  const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return value || fallback;
+}
+
 function bytesToBase64(bytes: Uint8Array): string {
   let binary = "";
   const chunkSize = 0x8000;
@@ -269,16 +281,19 @@ async function loadExistingSessions() {
 
 onMounted(async () => {
   if (!terminalRef.value) return;
+  const textPrimary = cssVar("--text-primary", "#e6f1ff");
+  const accent = cssVar("--accent", "#36f6ff");
+  const accentRgb = cssRgbVar("--accent-rgb", "54, 246, 255");
   term = new Terminal({
     cursorBlink: true,
     fontFamily: '"JetBrains Mono", monospace',
     fontSize: 13,
     lineHeight: 1.2,
     theme: {
-      background: "rgba(5, 8, 14, 0.95)",
-      foreground: "#e6f3ff",
-      cursor: "#2df6ff",
-      selection: "rgba(45, 246, 255, 0.25)",
+      background: "rgba(7, 11, 20, 0.95)",
+      foreground: textPrimary,
+      cursor: accent,
+      selection: `rgba(${accentRgb}, 0.25)`,
     },
   });
   fitAddon = new FitAddon();
@@ -399,8 +414,8 @@ onBeforeUnmount(() => {
 }
 
 .terminal-tab.active {
-  border-color: rgba(45, 246, 255, 0.5);
-  box-shadow: 0 0 12px rgba(45, 246, 255, 0.2);
+  border-color: rgba(var(--accent-rgb), 0.5);
+  box-shadow: 0 0 12px rgba(var(--accent-rgb), 0.2);
 }
 
 .terminal-tab.dragging {
@@ -411,7 +426,7 @@ onBeforeUnmount(() => {
 .tab-main {
   border: none;
   background: transparent;
-  color: #c9d9ed;
+  color: var(--text-soft);
   font-size: 0.8rem;
   display: inline-flex;
   align-items: center;
@@ -431,14 +446,14 @@ onBeforeUnmount(() => {
   width: 6px;
   height: 6px;
   border-radius: 999px;
-  background: #2df6ff;
-  box-shadow: 0 0 8px rgba(45, 246, 255, 0.6);
+  background: var(--accent);
+  box-shadow: 0 0 8px rgba(var(--accent-rgb), 0.6);
 }
 
 .tab-close {
   border: none;
   background: transparent;
-  color: #6f859c;
+  color: var(--text-tertiary);
   cursor: pointer;
   font-size: 0.9rem;
   line-height: 1;
@@ -446,14 +461,14 @@ onBeforeUnmount(() => {
 }
 
 .tab-close:hover {
-  color: #ff4fa2;
+  color: var(--accent-3);
 }
 
 .tab-add {
   border-radius: 999px;
-  border: 1px dashed rgba(45, 246, 255, 0.4);
+  border: 1px dashed rgba(var(--accent-rgb), 0.4);
   background: transparent;
-  color: #2df6ff;
+  color: var(--accent);
   font-size: 1rem;
   padding: 2px 10px;
   cursor: pointer;
@@ -469,27 +484,27 @@ onBeforeUnmount(() => {
 }
 
 .tab-status[data-state="live"] {
-  color: #b6ff4b;
-  border-color: rgba(182, 255, 75, 0.5);
-  background: rgba(182, 255, 75, 0.15);
+  color: var(--status-success);
+  border-color: rgba(var(--status-success-rgb), 0.5);
+  background: rgba(var(--status-success-rgb), 0.15);
 }
 
 .tab-status[data-state="starting"] {
-  color: #2df6ff;
-  border-color: rgba(45, 246, 255, 0.5);
-  background: rgba(45, 246, 255, 0.12);
+  color: var(--accent);
+  border-color: rgba(var(--accent-rgb), 0.5);
+  background: rgba(var(--accent-rgb), 0.12);
 }
 
 .tab-status[data-state="error"] {
-  color: #ff4fa2;
-  border-color: rgba(255, 79, 162, 0.5);
-  background: rgba(255, 79, 162, 0.12);
+  color: var(--accent-3);
+  border-color: rgba(var(--accent-3-rgb), 0.5);
+  background: rgba(var(--accent-3-rgb), 0.12);
 }
 
 .tab-status[data-state="idle"] {
-  color: #8aa0b7;
-  border-color: rgba(138, 160, 183, 0.4);
-  background: rgba(138, 160, 183, 0.12);
+  color: var(--text-secondary);
+  border-color: rgba(var(--text-secondary-rgb), 0.4);
+  background: rgba(var(--text-secondary-rgb), 0.12);
 }
 
 .terminal-actions {
@@ -505,16 +520,16 @@ onBeforeUnmount(() => {
   border-radius: 16px;
   overflow: hidden;
   border: 1px solid var(--line);
-  box-shadow: inset 0 0 22px rgba(45, 246, 255, 0.1);
+  box-shadow: inset 0 0 22px rgba(var(--accent-rgb), 0.1);
 }
 
 .terminal-capture {
   padding: 14px 16px;
   border-radius: 16px;
   background: var(--panel-glass);
-  border: 1px solid rgba(45, 246, 255, 0.2);
+  border: 1px solid rgba(var(--accent-rgb), 0.2);
   font-size: 0.85rem;
-  color: #cfe6ff;
+  color: var(--text-soft);
   max-height: 180px;
   overflow: auto;
 }
@@ -524,7 +539,7 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 10px;
-  color: #9bb0c6;
+  color: var(--text-secondary);
   font-size: 0.75rem;
   text-transform: uppercase;
   letter-spacing: 0.14em;
@@ -544,21 +559,21 @@ onBeforeUnmount(() => {
   text-transform: uppercase;
   letter-spacing: 0.14em;
   background: transparent;
-  color: #c9d9ed;
+  color: var(--text-soft);
   cursor: pointer;
   transition: all 0.2s ease;
 }
 
 .btn:hover {
-  border-color: rgba(45, 246, 255, 0.6);
-  color: #2df6ff;
+  border-color: rgba(var(--accent-rgb), 0.6);
+  color: var(--accent);
 }
 
 .btn.accent {
-  background: linear-gradient(135deg, rgba(45, 246, 255, 0.9), rgba(74, 125, 255, 0.9));
-  color: #05060a;
+  background: linear-gradient(135deg, rgba(var(--accent-rgb), 0.9), rgba(var(--status-info-rgb), 0.9));
+  color: var(--bg);
   border-color: transparent;
-  box-shadow: 0 0 18px rgba(45, 246, 255, 0.35);
+  box-shadow: 0 0 18px rgba(var(--accent-rgb), 0.35);
 }
 
 .btn.ghost {
@@ -570,3 +585,5 @@ onBeforeUnmount(() => {
   }
 }
 </style>
+
+

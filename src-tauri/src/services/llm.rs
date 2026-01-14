@@ -15,6 +15,8 @@ pub struct LlmProfile {
     pub api_key: String,
     pub base_url: String,
     pub model: String,
+    #[serde(default)]
+    pub provider_configs: HashMap<String, LlmProviderConfig>,
     pub temperature: f32,
     pub top_p: f32,
     pub max_tokens: u32,
@@ -39,6 +41,14 @@ pub struct LlmProfile {
 pub struct LlmToolToggle {
     pub id: String,
     pub enabled: bool,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct LlmProviderConfig {
+    pub api_key: String,
+    pub base_url: String,
+    pub model: String,
 }
 
 #[derive(Clone, Serialize, Deserialize, Default)]

@@ -198,9 +198,9 @@ function extractErrorMessage(error: unknown) {
   letter-spacing: 0.12em;
   padding: 6px 10px;
   border-radius: 999px;
-  border: 1px solid rgba(45, 246, 255, 0.4);
-  color: #2df6ff;
-  background: rgba(45, 246, 255, 0.12);
+  border: 1px solid rgba(var(--accent-rgb), 0.4);
+  color: var(--accent);
+  background: rgba(var(--accent-rgb), 0.12);
 }
 
 .search-box {
@@ -214,7 +214,7 @@ function extractErrorMessage(error: unknown) {
   border: 1px solid var(--line);
   padding: 10px 12px;
   background: var(--panel-glass);
-  color: #e6f3ff;
+  color: var(--text-primary);
 }
 
 .search-box input:disabled {
@@ -235,7 +235,7 @@ function extractErrorMessage(error: unknown) {
   border: 1px solid var(--line);
   padding: 10px 12px;
   background: var(--panel-glass);
-  color: #e6f3ff;
+  color: var(--text-primary);
 }
 
 .workspace-actions {
@@ -247,7 +247,7 @@ function extractErrorMessage(error: unknown) {
 .error-text {
   margin: 0;
   font-size: 0.7rem;
-  color: #ffb84d;
+  color: var(--status-warning);
 }
 
 .section {
@@ -262,7 +262,7 @@ function extractErrorMessage(error: unknown) {
   font-size: 0.75rem;
   text-transform: uppercase;
   letter-spacing: 0.18em;
-  color: #9bb0c6;
+  color: var(--text-secondary);
 }
 
 .tree {
@@ -276,7 +276,7 @@ function extractErrorMessage(error: unknown) {
   overflow: auto;
   padding-right: 4px;
   font-size: 0.85rem;
-  color: #c7d7ec;
+  color: var(--text-soft);
 }
 
 .status {
@@ -289,21 +289,21 @@ function extractErrorMessage(error: unknown) {
 }
 
 .status[data-status="modified"] {
-  color: #ffb84d;
-  border-color: rgba(255, 184, 77, 0.4);
-  background: rgba(255, 184, 77, 0.12);
+  color: var(--status-warning);
+  border-color: rgba(var(--status-warning-rgb), 0.4);
+  background: rgba(var(--status-warning-rgb), 0.12);
 }
 
 .status[data-status="added"] {
-  color: #b6ff4b;
-  border-color: rgba(182, 255, 75, 0.4);
-  background: rgba(182, 255, 75, 0.12);
+  color: var(--status-success);
+  border-color: rgba(var(--status-success-rgb), 0.4);
+  background: rgba(var(--status-success-rgb), 0.12);
 }
 
 .status[data-status="clean"] {
-  color: #8aa0b7;
-  border-color: rgba(138, 160, 183, 0.3);
-  background: rgba(138, 160, 183, 0.12);
+  color: var(--text-secondary);
+  border-color: rgba(var(--text-secondary-rgb), 0.3);
+  background: rgba(var(--text-secondary-rgb), 0.12);
 }
 
 .btn {
@@ -312,7 +312,7 @@ function extractErrorMessage(error: unknown) {
   padding: 8px 10px;
   font-size: 0.7rem;
   background: var(--panel-glass);
-  color: #9bb0c6;
+  color: var(--text-secondary);
   cursor: pointer;
 }
 
@@ -326,12 +326,14 @@ function extractErrorMessage(error: unknown) {
   font-size: 0.7rem;
   text-transform: uppercase;
   letter-spacing: 0.2em;
-  color: #b6ff4b;
+  color: var(--status-success);
 }
 
 .empty-text {
   margin: 0;
   font-size: 0.75rem;
-  color: #8aa0b7;
+  color: var(--text-secondary);
 }
 </style>
+
+

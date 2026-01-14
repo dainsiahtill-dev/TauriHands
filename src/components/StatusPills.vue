@@ -1,26 +1,53 @@
 <script setup lang="ts">
+import { computed, ref } from "vue";
+
 type StatusItem = {
   label: string;
   value: string;
   tone?: "info" | "ok" | "warn" | "error";
+  detail?: string;
 };
 
 const props = defineProps<{
   items: StatusItem[];
 }>();
+
+const activeLabel = ref("");
+
+const activeDetail = computed(() =>
+  props.items.find((item) => item.label === activeLabel.value && item.detail),
+);
+
+function toggleDetail(item: StatusItem) {
+  if (!item.detail) return;
+  activeLabel.value = activeLabel.value === item.label ? "" : item.label;
+}
 </script>
 
 <template>
   <div class="status-pills">
-    <span
-      v-for="item in props.items"
-      :key="item.label"
-      class="pill"
-      :data-tone="item.tone ?? 'info'"
-    >
-      <strong>{{ item.label }}</strong>
-      <span>{{ item.value }}</span>
-    </span>
+    <template v-for="item in props.items" :key="item.label">
+      <button
+        v-if="item.detail"
+        type="button"
+        class="pill pill-button"
+        :data-tone="item.tone ?? 'info'"
+        :data-active="activeLabel === item.label"
+        :aria-expanded="activeLabel === item.label"
+        @click="toggleDetail(item)"
+      >
+        <strong>{{ item.label }}</strong>
+        <span>{{ item.value }}</span>
+      </button>
+      <span v-else class="pill" :data-tone="item.tone ?? 'info'">
+        <strong>{{ item.label }}</strong>
+        <span>{{ item.value }}</span>
+      </span>
+    </template>
+  </div>
+  <div v-if="activeDetail" class="pill-detail">
+    <div class="pill-detail__label">{{ activeDetail.label }} details</div>
+    <pre class="pill-detail__content">{{ activeDetail.detail }}</pre>
   </div>
 </template>
 
@@ -48,18 +75,63 @@ const props = defineProps<{
   color: var(--text-primary);
 }
 
+.pill-button {
+  cursor: pointer;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, color 0.2s ease;
+}
+
+.pill-button:hover {
+  border-color: rgba(var(--accent-rgb), 0.45);
+  color: var(--text-primary);
+  box-shadow: 0 0 12px rgba(var(--accent-rgb), 0.18);
+}
+
+.pill-button[data-active="true"] {
+  border-color: rgba(var(--status-warning-rgb), 0.6);
+  box-shadow: 0 0 14px rgba(var(--status-warning-rgb), 0.2);
+}
+
+.pill-detail {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(var(--status-warning-rgb), 0.45);
+  background: rgba(var(--status-warning-rgb), 0.08);
+  display: grid;
+  gap: 6px;
+}
+
+.pill-detail__label {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: var(--status-warning);
+}
+
+.pill-detail__content {
+  margin: 0;
+  max-height: 180px;
+  overflow: auto;
+  font-size: 0.75rem;
+  white-space: pre-wrap;
+  color: var(--text-soft);
+  font-family: "JetBrains Mono", monospace;
+}
+
 .pill[data-tone="ok"] {
-  border-color: rgba(182, 255, 75, 0.35);
-  color: #b6ff4b;
+  border-color: rgba(var(--status-success-rgb), 0.35);
+  color: var(--status-success);
 }
 
 .pill[data-tone="warn"] {
-  border-color: rgba(255, 184, 77, 0.4);
-  color: #ffb84d;
+  border-color: rgba(var(--status-warning-rgb), 0.4);
+  color: var(--status-warning);
 }
 
 .pill[data-tone="error"] {
   border-color: rgba(255, 99, 99, 0.4);
-  color: #ff6363;
+  color: var(--status-error);
 }
 </style>
+
+

@@ -468,7 +468,7 @@ watch(
   text-transform: uppercase;
   letter-spacing: 0.12em;
   background: var(--panel-glass);
-  color: #9bb0c6;
+  color: var(--text-secondary);
   cursor: pointer;
   display: inline-flex;
   align-items: center;
@@ -476,9 +476,9 @@ watch(
 }
 
 .tab.active {
-  color: #2df6ff;
-  border-color: rgba(45, 246, 255, 0.55);
-  background: rgba(45, 246, 255, 0.12);
+  color: var(--accent);
+  border-color: rgba(var(--accent-rgb), 0.55);
+  background: rgba(var(--accent-rgb), 0.12);
 }
 
 .tab-count {
@@ -487,7 +487,7 @@ watch(
   border-radius: 999px;
   background: rgba(8, 12, 20, 0.8);
   border: 1px solid var(--line);
-  color: #c7d7ec;
+  color: var(--text-soft);
 }
 
 .section {
@@ -499,7 +499,7 @@ watch(
   font-size: 0.75rem;
   text-transform: uppercase;
   letter-spacing: 0.18em;
-  color: #9bb0c6;
+  color: var(--text-secondary);
 }
 
 .controls {
@@ -528,12 +528,12 @@ watch(
   font-size: 0.6rem;
   text-transform: uppercase;
   letter-spacing: 0.16em;
-  color: #8aa0b7;
+  color: var(--text-secondary);
 }
 
 .summary-card strong {
   font-size: 1rem;
-  color: #e6f3ff;
+  color: var(--text-primary);
 }
 
 .llm-preview {
@@ -554,7 +554,7 @@ watch(
 .llm-preview-text {
   margin: 0;
   font-size: 0.8rem;
-  color: #cfe6ff;
+  color: var(--text-soft);
   white-space: pre-wrap;
   max-height: 120px;
   overflow: auto;
@@ -569,7 +569,7 @@ watch(
   font-size: 0.6rem;
   text-transform: uppercase;
   letter-spacing: 0.16em;
-  color: #8aa0b7;
+  color: var(--text-secondary);
 }
 
 .llm-preview-output {
@@ -578,7 +578,7 @@ watch(
   border: 1px solid var(--line);
   padding: 8px 10px;
   background: rgba(5, 8, 14, 0.7);
-  color: #c7d7ec;
+  color: var(--text-soft);
   font-size: 0.7rem;
   font-family: "JetBrains Mono", monospace;
   white-space: pre-wrap;
@@ -600,26 +600,26 @@ watch(
   background: rgba(8, 12, 20, 0.8);
   display: grid;
   gap: 6px;
-  color: #c7d7ec;
+  color: var(--text-soft);
 }
 
 .llm-message[data-role="assistant"] {
-  border-color: rgba(182, 255, 75, 0.35);
+  border-color: rgba(var(--status-success-rgb), 0.35);
 }
 
 .llm-message[data-role="user"] {
-  border-color: rgba(45, 246, 255, 0.35);
+  border-color: rgba(var(--accent-rgb), 0.35);
 }
 
 .llm-message[data-role="system"] {
-  border-color: rgba(138, 160, 183, 0.35);
+  border-color: rgba(var(--text-secondary-rgb), 0.35);
 }
 
 .llm-role {
   font-size: 0.6rem;
   text-transform: uppercase;
   letter-spacing: 0.14em;
-  color: #8aa0b7;
+  color: var(--text-secondary);
 }
 
 .llm-message p {
@@ -631,15 +631,15 @@ watch(
 .awaiting-hint {
   margin: 0;
   font-size: 0.75rem;
-  color: #b6ff4b;
+  color: var(--status-success);
 }
 
 .error-card {
   margin-top: 10px;
   padding: 10px 12px;
   border-radius: 12px;
-  border: 1px solid rgba(255, 184, 77, 0.4);
-  background: rgba(255, 184, 77, 0.08);
+  border: 1px solid rgba(var(--status-warning-rgb), 0.4);
+  background: rgba(var(--status-warning-rgb), 0.08);
   display: grid;
   gap: 6px;
 }
@@ -648,7 +648,7 @@ watch(
   font-size: 0.7rem;
   text-transform: uppercase;
   letter-spacing: 0.16em;
-  color: #ffb84d;
+  color: var(--status-warning);
 }
 
 .error-detail {
@@ -657,7 +657,7 @@ watch(
   overflow: auto;
   font-size: 0.75rem;
   white-space: pre-wrap;
-  color: #f2d4a0;
+  color: var(--status-warning);
   font-family: "JetBrains Mono", monospace;
 }
 
@@ -673,7 +673,7 @@ watch(
   border: 1px solid var(--line);
   padding: 10px 12px;
   background: var(--panel-glass);
-  color: #e6f3ff;
+  color: var(--text-primary);
 }
 
 .plan-actions {
@@ -713,7 +713,7 @@ watch(
   padding: 4px 8px;
   border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, 0.1);
-  color: #8aa0b7;
+  color: var(--text-secondary);
 }
 
 .plan-item-actions {
@@ -735,7 +735,7 @@ watch(
 .tool-summary {
   margin: 6px 0 0;
   font-size: 0.75rem;
-  color: #9bb0c6;
+  color: var(--text-secondary);
   white-space: pre-wrap;
 }
 
@@ -757,12 +757,12 @@ watch(
 }
 
 .log-row[data-latest="true"] {
-  border-color: rgba(255, 184, 77, 0.6);
-  box-shadow: 0 0 16px rgba(255, 184, 77, 0.15);
+  border-color: rgba(var(--status-warning-rgb), 0.6);
+  box-shadow: 0 0 16px rgba(var(--status-warning-rgb), 0.15);
 }
 
 .log-time {
-  color: #9bb0c6;
+  color: var(--text-secondary);
 }
 
 .log-level {
@@ -772,7 +772,7 @@ watch(
 }
 
 .log-message {
-  color: #e6f3ff;
+  color: var(--text-primary);
 }
 
 .phase-chip,
@@ -783,7 +783,7 @@ watch(
   padding: 6px 10px;
   border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, 0.1);
-  color: #c7d7ec;
+  color: var(--text-soft);
   background: rgba(8, 12, 20, 0.8);
 }
 
@@ -794,7 +794,7 @@ watch(
   padding: 4px 8px;
   border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, 0.1);
-  color: #c7d7ec;
+  color: var(--text-soft);
 }
 
 .btn {
@@ -803,19 +803,19 @@ watch(
   padding: 8px 10px;
   font-size: 0.7rem;
   background: var(--panel-glass);
-  color: #9bb0c6;
+  color: var(--text-secondary);
   cursor: pointer;
 }
 
 .btn.primary {
-  background: linear-gradient(135deg, rgba(45, 246, 255, 0.9), rgba(74, 125, 255, 0.9));
-  color: #05060a;
+  background: linear-gradient(135deg, rgba(var(--accent-rgb), 0.9), rgba(var(--status-info-rgb), 0.9));
+  color: var(--bg);
   border-color: transparent;
-  box-shadow: 0 0 18px rgba(45, 246, 255, 0.4);
+  box-shadow: 0 0 18px rgba(var(--accent-rgb), 0.4);
 }
 
 .btn.ghost:hover {
-  border-color: rgba(45, 246, 255, 0.5);
+  border-color: rgba(var(--accent-rgb), 0.5);
   color: var(--accent);
 }
 
@@ -824,12 +824,14 @@ watch(
   font-size: 0.7rem;
   text-transform: uppercase;
   letter-spacing: 0.2em;
-  color: #b6ff4b;
+  color: var(--status-success);
 }
 
 .empty-text {
   margin: 0;
   font-size: 0.75rem;
-  color: #8aa0b7;
+  color: var(--text-secondary);
 }
 </style>
+
+

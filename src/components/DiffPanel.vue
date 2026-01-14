@@ -89,12 +89,13 @@ onMounted(() => {
 
 .error {
   margin: 0;
-  color: #ff6363;
+  color: var(--status-error);
 }
 
 .hint {
   margin: 0;
   font-size: 0.8rem;
-  color: #ffb84d;
+  color: var(--status-warning);
 }
 </style>
+

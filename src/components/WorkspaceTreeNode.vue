@@ -56,13 +56,13 @@ defineOptions({
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #2df6ff;
-  box-shadow: 0 0 10px rgba(45, 246, 255, 0.5);
+  background: var(--accent);
+  box-shadow: 0 0 10px rgba(var(--accent-rgb), 0.5);
 }
 
 .dot[data-type="folder"] {
-  background: #b6ff4b;
-  box-shadow: 0 0 12px rgba(182, 255, 75, 0.5);
+  background: var(--status-success);
+  box-shadow: 0 0 12px rgba(var(--status-success-rgb), 0.5);
 }
 
 .tree-children {
@@ -71,7 +71,9 @@ defineOptions({
   padding: 0;
   display: grid;
   gap: 6px;
-  color: #8aa0b7;
+  color: var(--text-secondary);
   font-size: 0.8rem;
 }
 </style>
+
+

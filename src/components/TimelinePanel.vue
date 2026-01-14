@@ -175,8 +175,8 @@ watch(
 }
 
 .event-list li.focused {
-  border-color: rgba(45, 246, 255, 0.55);
-  box-shadow: 0 0 18px rgba(45, 246, 255, 0.15);
+  border-color: rgba(var(--accent-rgb), 0.55);
+  box-shadow: 0 0 18px rgba(var(--accent-rgb), 0.15);
 }
 
 .event-body {
@@ -217,31 +217,31 @@ watch(
   letter-spacing: 0.12em;
   padding: 2px 8px;
   border-radius: 999px;
-  border: 1px solid rgba(138, 160, 183, 0.3);
-  color: #8aa0b7;
-  background: rgba(138, 160, 183, 0.12);
+  border: 1px solid rgba(var(--text-secondary-rgb), 0.3);
+  color: var(--text-secondary);
+  background: rgba(var(--text-secondary-rgb), 0.12);
 }
 
 .judge-chip[data-status="pass"] {
-  color: #b6ff4b;
-  border-color: rgba(182, 255, 75, 0.4);
-  background: rgba(182, 255, 75, 0.12);
+  color: var(--status-success);
+  border-color: rgba(var(--status-success-rgb), 0.4);
+  background: rgba(var(--status-success-rgb), 0.12);
 }
 
 .judge-chip[data-status="fail"] {
-  color: #ffb84d;
-  border-color: rgba(255, 184, 77, 0.4);
-  background: rgba(255, 184, 77, 0.12);
+  color: var(--status-warning);
+  border-color: rgba(var(--status-warning-rgb), 0.4);
+  background: rgba(var(--status-warning-rgb), 0.12);
 }
 
 .judge-chip[data-status="pending"] {
-  color: #2df6ff;
-  border-color: rgba(45, 246, 255, 0.35);
-  background: rgba(45, 246, 255, 0.12);
+  color: var(--accent);
+  border-color: rgba(var(--accent-rgb), 0.35);
+  background: rgba(var(--accent-rgb), 0.12);
 }
 
 .judge-reasons {
-  color: #ffb84d;
+  color: var(--status-warning);
   font-size: 0.72rem;
   word-break: break-word;
 }
@@ -262,7 +262,7 @@ watch(
   font-size: 0.65rem;
   text-transform: uppercase;
   letter-spacing: 0.12em;
-  color: #9bb0c6;
+  color: var(--text-secondary);
   list-style: none;
 }
 
@@ -271,7 +271,7 @@ watch(
 }
 
 .judge-check-type {
-  color: #2df6ff;
+  color: var(--accent);
 }
 
 .judge-check-status {
@@ -279,31 +279,31 @@ watch(
   border-radius: 999px;
   border: 1px solid var(--line);
   font-size: 0.55rem;
-  color: #c7d7ec;
+  color: var(--text-soft);
 }
 
 .judge-check-status[data-status="pass"] {
-  color: #b6ff4b;
-  border-color: rgba(182, 255, 75, 0.4);
-  background: rgba(182, 255, 75, 0.12);
+  color: var(--status-success);
+  border-color: rgba(var(--status-success-rgb), 0.4);
+  background: rgba(var(--status-success-rgb), 0.12);
 }
 
 .judge-check-status[data-status="fail"] {
-  color: #ffb84d;
-  border-color: rgba(255, 184, 77, 0.4);
-  background: rgba(255, 184, 77, 0.12);
+  color: var(--status-warning);
+  border-color: rgba(var(--status-warning-rgb), 0.4);
+  background: rgba(var(--status-warning-rgb), 0.12);
 }
 
 .judge-check-status[data-status="pending"] {
-  color: #2df6ff;
-  border-color: rgba(45, 246, 255, 0.35);
-  background: rgba(45, 246, 255, 0.12);
+  color: var(--accent);
+  border-color: rgba(var(--accent-rgb), 0.35);
+  background: rgba(var(--accent-rgb), 0.12);
 }
 
 .judge-check-reason {
   text-transform: none;
   letter-spacing: 0;
-  color: #8aa0b7;
+  color: var(--text-secondary);
   font-size: 0.65rem;
 }
 
@@ -317,7 +317,7 @@ watch(
 .judge-evidence pre {
   margin: 0;
   font-size: 0.68rem;
-  color: #c7d7ec;
+  color: var(--text-soft);
   font-family: "JetBrains Mono", monospace;
   white-space: pre-wrap;
   max-height: 140px;
@@ -340,3 +340,5 @@ watch(
   color: var(--text-tertiary);
 }
 </style>
+
+

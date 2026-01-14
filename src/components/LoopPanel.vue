@@ -14,6 +14,16 @@ const isRunning = computed(() => agentState.value === "RUNNING");
 const isPaused = computed(() => agentState.value === "PAUSED");
 const isAwaiting = computed(() => agentState.value === "AWAITING_USER");
 const canStop = computed(() => agentState.value !== "IDLE");
+const lastError = computed(() => {
+  const direct = run.value?.lastError?.trim() ?? "";
+  if (direct) return direct;
+  const log = state.logs.find((entry) => entry.level === "error");
+  return log?.message?.trim() ?? "";
+});
+const errorDetail = computed(() => {
+  if (agentState.value !== "ERROR") return "";
+  return lastError.value || "No error details recorded.";
+});
 
 const iteration = computed(() => run.value?.turn ?? 0);
 const budget = computed(() => run.value?.budget);
@@ -25,7 +35,12 @@ const judgeReasons = computed(() => judgeResult.value?.reasons ?? []);
 const judgeChecks = computed(() => judgeResult.value?.checks ?? []);
 
 const pills = computed(() => [
-  { label: "State", value: agentState.value, tone: agentState.value === "ERROR" ? "error" : "info" },
+  {
+    label: "State",
+    value: agentState.value,
+    tone: agentState.value === "ERROR" ? "error" : "info",
+    detail: errorDetail.value,
+  },
   { label: "Iter", value: String(iteration.value) },
   { label: "Budget", value: budget.value ? `${budget.value.usedSteps}/${budget.value.maxSteps}` : "-" },
 ]);
@@ -138,8 +153,9 @@ function continueRun() {
 .activity-card {
   padding: 10px 12px;
   border-radius: 10px;
-  border: 1px solid var(--line);
-  background: rgba(8, 12, 20, 0.7);
+  border: 1px solid rgba(var(--line-rgb), 0.36);
+  background: linear-gradient(140deg, rgba(9, 16, 30, 0.85), rgba(7, 12, 22, 0.78));
+  box-shadow: inset 0 0 14px rgba(var(--accent-rgb), 0.08);
   color: var(--text-secondary);
   font-size: 0.85rem;
 }
@@ -176,34 +192,35 @@ function continueRun() {
   letter-spacing: 0.12em;
   padding: 4px 10px;
   border-radius: 999px;
-  border: 1px solid rgba(138, 160, 183, 0.3);
-  color: #8aa0b7;
-  background: rgba(138, 160, 183, 0.12);
+  border: 1px solid rgba(var(--text-secondary-rgb), 0.3);
+  color: var(--text-secondary);
+  background: rgba(var(--text-secondary-rgb), 0.12);
 }
 
 .judge-chip[data-status="pass"] {
-  color: #b6ff4b;
-  border-color: rgba(182, 255, 75, 0.4);
-  background: rgba(182, 255, 75, 0.12);
+  color: var(--status-success);
+  border-color: rgba(var(--status-success-rgb), 0.4);
+  background: rgba(var(--status-success-rgb), 0.12);
 }
 
 .judge-chip[data-status="fail"] {
-  color: #ffb84d;
-  border-color: rgba(255, 184, 77, 0.4);
-  background: rgba(255, 184, 77, 0.12);
+  color: var(--status-warning);
+  border-color: rgba(var(--status-warning-rgb), 0.4);
+  background: rgba(var(--status-warning-rgb), 0.12);
 }
 
 .judge-chip[data-status="pending"] {
-  color: #2df6ff;
-  border-color: rgba(45, 246, 255, 0.35);
-  background: rgba(45, 246, 255, 0.12);
+  color: var(--accent);
+  border-color: rgba(var(--accent-rgb), 0.35);
+  background: rgba(var(--accent-rgb), 0.12);
 }
 
 .judge-card {
   padding: 10px 12px;
   border-radius: 10px;
-  border: 1px solid var(--line);
-  background: rgba(8, 12, 20, 0.7);
+  border: 1px solid rgba(var(--line-rgb), 0.36);
+  background: linear-gradient(140deg, rgba(9, 16, 30, 0.85), rgba(7, 12, 22, 0.78));
+  box-shadow: inset 0 0 14px rgba(var(--accent-rgb), 0.08);
   color: var(--text-secondary);
   font-size: 0.85rem;
   display: grid;
@@ -216,7 +233,7 @@ function continueRun() {
 
 .judge-reasons {
   margin: 0;
-  color: #ffb84d;
+  color: var(--status-warning);
   font-size: 0.8rem;
   word-break: break-word;
 }
@@ -228,8 +245,8 @@ function continueRun() {
 
 .judge-check {
   border-radius: 10px;
-  border: 1px solid var(--line);
-  background: rgba(5, 8, 14, 0.6);
+  border: 1px solid rgba(var(--line-rgb), 0.3);
+  background: rgba(5, 8, 14, 0.7);
   overflow: hidden;
 }
 
@@ -242,7 +259,7 @@ function continueRun() {
   font-size: 0.7rem;
   text-transform: uppercase;
   letter-spacing: 0.12em;
-  color: #9bb0c6;
+  color: var(--text-secondary);
   list-style: none;
 }
 
@@ -251,7 +268,7 @@ function continueRun() {
 }
 
 .judge-check-type {
-  color: #2df6ff;
+  color: var(--accent);
 }
 
 .judge-check-status {
@@ -259,31 +276,31 @@ function continueRun() {
   border-radius: 999px;
   border: 1px solid var(--line);
   font-size: 0.6rem;
-  color: #c7d7ec;
+  color: var(--text-soft);
 }
 
 .judge-check-status[data-status="pass"] {
-  color: #b6ff4b;
-  border-color: rgba(182, 255, 75, 0.4);
-  background: rgba(182, 255, 75, 0.12);
+  color: var(--status-success);
+  border-color: rgba(var(--status-success-rgb), 0.4);
+  background: rgba(var(--status-success-rgb), 0.12);
 }
 
 .judge-check-status[data-status="fail"] {
-  color: #ffb84d;
-  border-color: rgba(255, 184, 77, 0.4);
-  background: rgba(255, 184, 77, 0.12);
+  color: var(--status-warning);
+  border-color: rgba(var(--status-warning-rgb), 0.4);
+  background: rgba(var(--status-warning-rgb), 0.12);
 }
 
 .judge-check-status[data-status="pending"] {
-  color: #2df6ff;
-  border-color: rgba(45, 246, 255, 0.35);
-  background: rgba(45, 246, 255, 0.12);
+  color: var(--accent);
+  border-color: rgba(var(--accent-rgb), 0.35);
+  background: rgba(var(--accent-rgb), 0.12);
 }
 
 .judge-check-reason {
   text-transform: none;
   letter-spacing: 0;
-  color: #8aa0b7;
+  color: var(--text-secondary);
   font-size: 0.7rem;
 }
 
@@ -297,13 +314,13 @@ function continueRun() {
 .judge-evidence pre {
   margin: 0;
   font-size: 0.72rem;
-  color: #c7d7ec;
+  color: var(--text-soft);
   font-family: "JetBrains Mono", monospace;
   white-space: pre-wrap;
   max-height: 160px;
   overflow: auto;
-  background: rgba(5, 8, 14, 0.7);
-  border: 1px solid var(--line);
+  background: rgba(5, 8, 14, 0.75);
+  border: 1px solid rgba(var(--line-rgb), 0.3);
   border-radius: 8px;
   padding: 8px;
 }
@@ -315,17 +332,14 @@ function continueRun() {
 }
 
 .loop-chat {
-  min-height: 240px;
-  border-radius: 12px;
-  border: 1px solid var(--line);
-  overflow: hidden;
+  min-height: 260px;
 }
 
 .loop-details {
-  border: 1px solid var(--line);
+  border: 1px solid rgba(var(--line-rgb), 0.3);
   border-radius: 12px;
   padding: 8px 10px;
-  background: rgba(8, 12, 20, 0.6);
+  background: rgba(8, 12, 20, 0.7);
 }
 
 .loop-details summary {
@@ -333,3 +347,5 @@ function continueRun() {
   color: var(--text-secondary);
 }
 </style>
+
+

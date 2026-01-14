@@ -1,62 +1,29 @@
 <script setup lang="ts">
-const props = defineProps<{
+defineProps<{
   title: string;
   subtitle?: string;
+  icon?: string;
+  noPadding?: boolean;
 }>();
 </script>
 
 <template>
-  <section class="panel-shell">
-    <header class="panel-header">
-      <div>
-        <p class="eyebrow">{{ props.subtitle }}</p>
-        <h3>{{ props.title }}</h3>
+  <section class="panel-shell flex h-full w-full min-h-0 flex-col">
+    <header class="panel-shell__header">
+      <div class="panel-shell__title">
+        <p v-if="subtitle" class="panel-shell__subtitle">{{ subtitle }}</p>
+        <div class="panel-shell__main">
+          <span v-if="icon" class="panel-shell__icon">{{ icon }}</span>
+          <span>{{ title }}</span>
+        </div>
       </div>
-      <div class="panel-actions">
-        <slot name="actions" />
+      <div v-if="$slots.actions" class="panel-shell__actions">
+        <slot name="actions"></slot>
       </div>
     </header>
-    <div class="panel-body">
-      <slot />
+
+    <div class="panel-shell__body" :class="noPadding ? 'is-flush' : ''">
+      <slot></slot>
     </div>
   </section>
 </template>
-
-<style scoped>
-.panel-shell {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 14px;
-  border-radius: 16px;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  box-shadow: var(--shadow);
-  height: 100%;
-  min-height: 0;
-}
-
-.panel-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.panel-header h3 {
-  margin: 0;
-  font-size: 1rem;
-}
-
-.panel-body {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-}
-
-.panel-actions {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-</style>

@@ -14,9 +14,24 @@ const workspacePath = computed(() => run.value?.toolContext?.cwd ?? "Not set");
 const runId = computed(() => run.value?.runId ?? "-");
 const agentState = computed(() => run.value?.agentState ?? "IDLE");
 const taskCount = computed(() => run.value?.tasks?.items?.length ?? 0);
+const lastError = computed(() => {
+  const direct = run.value?.lastError?.trim() ?? "";
+  if (direct) return direct;
+  const log = state.logs.find((entry) => entry.level === "error");
+  return log?.message?.trim() ?? "";
+});
+const errorDetail = computed(() => {
+  if (agentState.value !== "ERROR") return "";
+  return lastError.value || "No error details recorded.";
+});
 
 const pills = computed(() => [
-  { label: "State", value: agentState.value, tone: agentState.value === "ERROR" ? "error" : "info" },
+  {
+    label: "State",
+    value: agentState.value,
+    tone: agentState.value === "ERROR" ? "error" : "info",
+    detail: errorDetail.value,
+  },
   { label: "Run", value: runId.value.slice(0, 8) || "-" },
   { label: "Tasks", value: String(taskCount.value) },
 ]);
@@ -226,6 +241,7 @@ watch(
   border-radius: 12px;
   overflow: hidden;
   border: 1px solid var(--line);
+  box-shadow: inset 0 0 16px rgba(var(--accent-rgb), 0.08);
 }
 
 .form-grid {
@@ -243,10 +259,19 @@ watch(
 .field {
   padding: 8px 10px;
   border-radius: 10px;
-  border: 1px solid var(--line);
-  background: rgba(8, 12, 20, 0.7);
+  border: 1px solid rgba(var(--line-rgb), 0.36);
+  background: rgba(6, 12, 22, 0.8);
+  box-shadow: inset 0 0 12px rgba(var(--accent-rgb), 0.08);
   color: var(--text-primary);
   font-size: 0.85rem;
+}
+
+.field:focus {
+  outline: none;
+  border-color: rgba(var(--accent-rgb), 0.6);
+  box-shadow:
+    inset 0 0 12px rgba(var(--accent-rgb), 0.12),
+    0 0 12px rgba(var(--accent-rgb), 0.2);
 }
 
 .form-actions {
@@ -262,7 +287,7 @@ watch(
 
 .error {
   font-size: 0.8rem;
-  color: #ff6363;
+  color: var(--status-error);
 }
 
 .task-list {
@@ -300,3 +325,4 @@ watch(
   margin: 0;
 }
 </style>
+
