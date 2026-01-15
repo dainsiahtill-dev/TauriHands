@@ -1,16 +1,19 @@
 <script setup lang="ts">
-import { computed, onMounted } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { agentStore } from "../agents/orchestrator";
+import CyberScene from "../components/CyberScene.vue";
 
 type ViewId = "console" | "llm" | "tools" | "security";
 
 const router = useRouter();
 const route = useRoute();
 
-const { state, initKernelStore } = agentStore;
+const { state, initKernelStore, userInput, stop } = agentStore;
 const run = computed(() => state.run);
 const agentState = computed(() => run.value?.agentState ?? "IDLE");
+const needsAttention = computed(() => agentState.value === "AWAITING_USER");
+const attentionError = ref("");
 const runId = computed(() => run.value?.runId ?? "-");
 const shortRunId = computed(() => (runId.value ? runId.value.slice(0, 8) : "-"));
 const workspacePath = computed(() => run.value?.toolContext?.cwd ?? "Not set");
@@ -116,6 +119,24 @@ function navigateTo(view: ViewId) {
   void router.push({ name: view });
 }
 
+async function handleContinue() {
+  attentionError.value = "";
+  try {
+    await userInput("继续");
+  } catch (error) {
+    attentionError.value = error instanceof Error ? error.message : "Unable to continue.";
+  }
+}
+
+async function handleStop() {
+  attentionError.value = "";
+  try {
+    await stop();
+  } catch (error) {
+    attentionError.value = error instanceof Error ? error.message : "Unable to stop.";
+  }
+}
+
 onMounted(() => {
   void initKernelStore();
 });
@@ -123,18 +144,12 @@ onMounted(() => {
 
 <template>
   <div class="app-shell">
+    <CyberScene />
+    <div class="scanline" aria-hidden="true"></div>
     <div class="app-backdrop"></div>
     <div class="app-frame">
-      <div class="aurora-bg" aria-hidden="true">
-        <div class="aurora-flow"></div>
-        <div class="aurora-ribbon ribbon-1"></div>
-        <div class="aurora-ribbon ribbon-2"></div>
-        <div class="aurora-item item-1"></div>
-        <div class="aurora-item item-2"></div>
-        <div class="aurora-item item-3"></div>
-        <div class="aurora-item item-4"></div>
-        <div class="aurora-item item-5"></div>
-      </div>
+      <div class="frame-rim" aria-hidden="true"></div>
+      <div class="frame-lights" aria-hidden="true"></div>
       <header class="app-header">
         <div class="app-header__left">
           <div class="brand-badge">
@@ -284,6 +299,18 @@ onMounted(() => {
         </div>
         <div>Tauri v2.0.0</div>
       </footer>
+    </div>
+
+    <div v-if="needsAttention" class="attention-overlay" role="dialog" aria-live="assertive">
+      <div class="attention-card">
+        <p class="attention-title">Awaiting confirmation</p>
+        <p class="attention-text">The agent paused and needs your input to continue.</p>
+        <div class="attention-actions">
+          <button class="btn primary attention-btn" type="button" @click="handleContinue">Continue</button>
+          <button class="btn ghost attention-btn" type="button" @click="handleStop">Stop</button>
+        </div>
+        <p v-if="attentionError" class="attention-error">{{ attentionError }}</p>
+      </div>
     </div>
   </div>
 </template>

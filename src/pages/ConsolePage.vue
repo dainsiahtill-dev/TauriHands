@@ -221,9 +221,14 @@ function handleSelectTab(id: string) {
   gap: 12px;
   padding: 8px 12px;
   border-radius: 16px;
-  border: 1px solid rgba(var(--line-rgb), 0.38);
-  background: linear-gradient(90deg, rgba(9, 16, 30, 0.9), rgba(7, 12, 22, 0.82));
-  box-shadow: inset 0 0 18px rgba(var(--accent-rgb), 0.12);
+  border: 1px solid rgba(var(--accent-rgb), 0.35);
+  background: rgba(2, 10, 20, 0.85);
+  backdrop-filter: blur(12px);
+  box-shadow:
+    inset 0 1px 0 var(--bevel-light),
+    inset 0 -12px 20px var(--bevel-dark),
+    inset 0 0 18px rgba(var(--accent-rgb), 0.12),
+    0 18px 34px var(--depth-shadow);
   position: relative;
 }
 
@@ -248,7 +253,7 @@ function handleSelectTab(id: string) {
   font-size: 0.95rem;
   text-transform: uppercase;
   letter-spacing: 0.28em;
-  font-family: "Orbitron", sans-serif;
+  font-family: "JetBrains Mono", monospace;
   color: var(--text-primary);
   text-shadow:
     0 0 12px rgba(var(--accent-rgb), 0.45),
@@ -268,6 +273,7 @@ function handleSelectTab(id: string) {
   min-height: 0;
   overflow: hidden;
   position: relative;
+  transform-style: preserve-3d;
 }
 
 .cockpit-grid::before {
@@ -288,6 +294,7 @@ function handleSelectTab(id: string) {
   overflow: hidden;
   position: relative;
   z-index: 1;
+  transform-style: preserve-3d;
 }
 
 .left-rail,
@@ -297,25 +304,34 @@ function handleSelectTab(id: string) {
 
 .left-rail {
   grid-area: left;
+  --panel-depth: 10px;
+  --fog-opacity: 0.14;
 }
 
 .center-rail {
   grid-area: center;
   grid-auto-rows: minmax(0, 1fr);
+  --panel-depth: 26px;
+  --fog-opacity: 0.06;
 }
 
 .right-rail {
   grid-area: right;
   grid-template-rows: minmax(0, 1fr) minmax(0, 0.9fr);
+  --panel-depth: 12px;
+  --fog-opacity: 0.12;
 }
 
 .bottom-rail {
   grid-area: bottom;
   min-height: 0;
+  --panel-depth: 18px;
+  --fog-opacity: 0.1;
 }
 
 .focused {
   box-shadow: 0 0 0 1px rgba(var(--accent-rgb), 0.5), 0 0 26px rgba(var(--accent-rgb), 0.2);
+  transform: translateZ(calc(var(--panel-depth, 16px) + 12px));
 }
 
 .telemetry {
@@ -377,9 +393,14 @@ function handleSelectTab(id: string) {
 
 .telemetry-card {
   border-radius: 10px;
-  border: 1px solid rgba(var(--line-rgb), 0.28);
-  background: linear-gradient(140deg, rgba(9, 16, 30, 0.85), rgba(7, 12, 22, 0.75));
-  box-shadow: inset 0 0 12px rgba(var(--accent-rgb), 0.08);
+  border: 1px solid rgba(var(--accent-rgb), 0.3);
+  background: rgba(2, 10, 20, 0.8);
+  backdrop-filter: blur(12px);
+  box-shadow:
+    inset 0 1px 0 var(--bevel-light),
+    inset 0 -10px 16px var(--bevel-dark),
+    inset 0 0 12px rgba(var(--accent-rgb), 0.08),
+    0 10px 20px var(--depth-shadow);
   padding: 8px 10px;
   display: flex;
   align-items: center;
