@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct AuditLog {
     path: PathBuf,
     lock: Arc<Mutex<()>>,

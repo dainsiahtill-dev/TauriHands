@@ -1,0 +1,445 @@
+/* Responsive Design Improvements */
+@layer components {
+  /* Mobile-first approach */
+  @media (max-width: 768px) {
+    .app-header {
+      grid-template-columns: 1fr;
+      gap: 8px;
+      padding: 8px;
+    }
+
+    .app-header__left,
+    .app-header__center,
+    .app-header__right {
+      justify-content: center;
+      text-align: center;
+    }
+
+    .app-body {
+      grid-template-columns: 1fr;
+      gap: 8px;
+    }
+
+    .app-body.with-rail {
+      grid-template-columns: 1fr;
+    }
+
+    .primary-nav {
+      flex-direction: row;
+      justify-content: center;
+      padding: 8px;
+    }
+
+    .nav-button {
+      flex-direction: row;
+      gap: 4px;
+      padding: 6px 8px;
+      font-size: 0.55rem;
+    }
+
+    .nav-button svg {
+      height: 14px;
+      width: 14px;
+    }
+
+    .system-rail {
+      display: none;
+    }
+
+    .panel-shell {
+      transform: translateZ(8px);
+    }
+
+    .attention-card {
+      width: min(400px, 95vw);
+      padding: 16px 20px;
+    }
+
+    .cockpit-grid {
+      grid-template-columns: 1fr;
+      grid-template-rows: auto;
+      grid-template-areas:
+        "header"
+        "left"
+        "center"
+        "right"
+        "bottom";
+      overflow: auto;
+    }
+
+    .right-rail {
+      grid-template-rows: auto;
+    }
+
+    .settings-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .card.wide {
+      grid-column: auto;
+    }
+
+    .field-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .field-grid label.full {
+      grid-column: auto;
+    }
+
+    .tool-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .settings-header {
+      flex-direction: column;
+    }
+
+    .settings-footer {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+  }
+
+  /* Tablet styles */
+  @media (min-width: 769px) and (max-width: 1024px) {
+    .app-header {
+      grid-template-columns: 1fr 2fr 1fr;
+    }
+
+    .app-body.with-rail {
+      grid-template-columns: 60px 220px 1fr;
+    }
+
+    .primary-nav {
+      padding: 8px 6px;
+    }
+
+    .nav-button {
+      padding: 6px 4px;
+      font-size: 0.55rem;
+    }
+
+    .nav-button svg {
+      height: 16px;
+      width: 16px;
+    }
+
+    .system-rail {
+      padding: 8px;
+    }
+
+    .panel-shell {
+      transform: translateZ(12px);
+    }
+
+    .field-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .field-grid label.full {
+      grid-column: auto;
+    }
+  }
+
+  /* Large desktop styles */
+  @media (min-width: 1400px) {
+    .app-frame {
+      padding: 18px 18px 16px;
+      gap: 16px;
+    }
+
+    .app-header {
+      padding: 12px 16px;
+    }
+
+    .primary-nav {
+      padding: 16px 10px;
+    }
+
+    .system-rail {
+      padding: 16px;
+    }
+
+    .panel-shell {
+      transform: translateZ(20px);
+    }
+
+    .cockpit-grid {
+      gap: 16px;
+    }
+
+    .attention-card {
+      width: min(600px, 90vw);
+      padding: 24px 28px;
+    }
+  }
+
+  /* Ultra-wide styles */
+  @media (min-width: 1920px) {
+    .app-frame {
+      max-width: 1800px;
+      margin: 0 auto;
+    }
+
+    .cockpit-grid {
+      grid-template-columns: minmax(300px, 380px) minmax(0, 1fr) minmax(320px, 400px);
+    }
+
+    .panel-shell {
+      transform: translateZ(24px);
+    }
+  }
+
+  /* High DPI displays */
+  @media (-webkit-min-device-pixel-ratio: 2), (min-resolution: 192dpi) {
+    .scanline {
+      opacity: 0.2;
+    }
+
+    .cyber-scene__canvas {
+      filter: saturate(1.1) contrast(1.05);
+    }
+
+    .hud-cut {
+      --hud-cut: 12px;
+      --hud-cut-sm: 8px;
+      --hud-cut-xs: 4px;
+    }
+  }
+
+  /* Reduced motion support */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+
+    .core-pulse {
+      animation: none;
+      opacity: 1;
+    }
+
+    .app-frame {
+      transform: none;
+    }
+
+    .panel-shell {
+      transform: none;
+    }
+
+    .animate-hud-sweep {
+      animation: none;
+    }
+  }
+
+  /* Dark mode support (for future theme system) */
+  @media (prefers-color-scheme: light) {
+    :root {
+      color-scheme: light;
+      --bg: #f8fafc;
+      --text-primary: #1e293b;
+      --text-secondary: #475569;
+      --text-tertiary: #94a3b8;
+      --panel-core: linear-gradient(135deg, rgba(255, 255, 255, 0.95), rgba(248, 250, 252, 0.9));
+      --accent: #3b82f6;
+      --accent-rgb: 59, 130, 246;
+    }
+  }
+
+  /* Print styles */
+  @media print {
+    .scanline,
+    .cyber-scene,
+    .app-backdrop,
+    .frame-lights,
+    .primary-nav,
+    .system-rail,
+    .attention-overlay {
+      display: none !important;
+    }
+
+    .app-frame {
+      box-shadow: none;
+      border: 1px solid #000;
+      background: #fff;
+      color: #000;
+    }
+
+    .panel-shell {
+      background: #f5f5f5;
+      color: #000;
+    }
+
+    .hud-cut {
+      --hud-cut: 0px;
+      --hud-cut-sm: 0px;
+      --hud-cut-xs: 0px;
+    }
+  }
+
+  /* Touch device optimizations */
+  @media (hover: none) and (pointer: coarse) {
+    .nav-button {
+      min-height: 44px;
+      min-width: 44px;
+    }
+
+    .btn {
+      min-height: 44px;
+      padding: 12px 16px;
+    }
+
+    .tab {
+      min-height: 44px;
+      padding: 8px 16px;
+    }
+
+    .panel-shell {
+      clip-path: none;
+      border-radius: 8px;
+    }
+
+    .card {
+      clip-path: none;
+      border-radius: 8px;
+    }
+  }
+
+  /* Small mobile devices */
+  @media (max-width: 480px) {
+    .app-frame {
+      padding: 8px;
+      gap: 8px;
+    }
+
+    .brand-badge {
+      height: 36px;
+      width: 36px;
+    }
+
+    .brand-subtitle {
+      font-size: 0.8rem;
+    }
+
+    .header-chip,
+    .header-search {
+      font-size: 0.55rem;
+      padding: 3px 8px;
+    }
+
+    .attention-card {
+      width: min(320px, 90vw);
+      padding: 12px 16px;
+    }
+
+    .panel-content {
+      padding: 12px;
+    }
+
+    .summary-grid {
+      grid-template-columns: 1fr;
+      gap: 8px;
+    }
+
+    .controls {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 8px;
+    }
+
+    .header-actions {
+      flex-direction: column;
+      gap: 8px;
+    }
+  }
+
+  /* Landscape mobile optimizations */
+  @media (max-width: 768px) and (orientation: landscape) {
+    .app-frame {
+      padding: 6px;
+      gap: 6px;
+    }
+
+    .app-header {
+      padding: 6px;
+    }
+
+    .primary-nav {
+      padding: 6px;
+      gap: 6px;
+    }
+
+    .nav-button {
+      padding: 4px 6px;
+      font-size: 0.5rem;
+    }
+
+    .nav-button svg {
+      height: 12px;
+      width: 12px;
+    }
+
+    .nav-button span {
+      display: none;
+    }
+  }
+
+  /* Ultra-wide landscape optimizations */
+  @media (min-width: 1200px) and (orientation: landscape) {
+    .cockpit-grid {
+      grid-template-columns: 280px 1fr 320px;
+      grid-template-rows: auto 1fr;
+      grid-template-areas:
+        "header header header"
+        "left center right"
+        "left bottom right";
+    }
+
+    .left-rail {
+      grid-area: left;
+    }
+
+    .center-panel {
+      grid-area: center;
+    }
+
+    .right-rail {
+      grid-area: right;
+    }
+  }
+
+  /* Compact mode for small screens */
+  @media (max-width: 600px) {
+    .app-frame {
+      --hud-cut: 8px;
+      --hud-cut-sm: 6px;
+      --hud-cut-xs: 4px;
+    }
+
+    .eyebrow {
+      font-size: 0.6rem;
+    }
+
+    .panel-title {
+      font-size: 0.9rem;
+    }
+
+    .section-title {
+      font-size: 0.65rem;
+    }
+
+    .summary-label {
+      font-size: 0.55rem;
+    }
+
+    .phase-chip,
+    .budget-chip {
+      font-size: 0.55rem;
+      padding: 4px 8px;
+    }
+  }
+}

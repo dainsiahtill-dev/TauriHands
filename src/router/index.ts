@@ -1,5 +1,5 @@
 import { createRouter, createWebHashHistory, type RouteRecordRaw } from "vue-router";
-import ConsolePage from "../pages/ConsolePage.vue";
+import ConsoleView from "../views/ConsoleView-Element.vue";
 import LLMSettingsPage from "../pages/LLMSettingsPage.vue";
 import ToolSettingsPage from "../pages/ToolSettingsPage.vue";
 import SecuritySettingsPage from "../pages/SecuritySettingsPage.vue";
@@ -8,7 +8,7 @@ const routes: RouteRecordRaw[] = [
   {
     path: "/",
     name: "console",
-    component: ConsolePage,
+    component: ConsoleView,
   },
   {
     path: "/settings",

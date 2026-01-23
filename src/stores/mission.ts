@@ -1,5 +1,5 @@
-import { reactive } from "vue";
 import { invoke } from "@tauri-apps/api/core";
+import { reactive } from "vue";
 
 export type TaskBudget = {
   maxIterations?: number;
@@ -23,11 +23,30 @@ export type TaskConfig = {
   autonomy: string;
 };
 
-const state = reactive({
-  active: null as TaskConfig | null,
+type MissionState = {
+  active: TaskConfig | null;
+  loading: boolean;
+  error: string;
+};
+
+const state = reactive<MissionState>({
+  active: null,
   loading: false,
   error: "",
 });
+
+const listeners = new Set<(next: MissionState) => void>();
+
+function notify() {
+  for (const listener of listeners) {
+    listener(state);
+  }
+}
+
+function subscribe(listener: (next: MissionState) => void) {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
 
 function defaultTaskConfig(): TaskConfig {
   return {
@@ -48,6 +67,7 @@ function defaultTaskConfig(): TaskConfig {
 async function loadActive() {
   state.loading = true;
   state.error = "";
+  notify();
   try {
     const result = (await invoke("task_get_active")) as TaskConfig | null;
     state.active = result ?? defaultTaskConfig();
@@ -56,12 +76,14 @@ async function loadActive() {
     state.active = defaultTaskConfig();
   } finally {
     state.loading = false;
+    notify();
   }
 }
 
 async function saveActive(config: TaskConfig) {
   state.loading = true;
   state.error = "";
+  notify();
   try {
     const result = (await invoke("task_save_config", { request: config })) as TaskConfig;
     state.active = result;
@@ -71,11 +93,13 @@ async function saveActive(config: TaskConfig) {
     throw error;
   } finally {
     state.loading = false;
+    notify();
   }
 }
 
 export const missionStore = {
   state,
+  subscribe,
   loadActive,
   saveActive,
   defaultTaskConfig,

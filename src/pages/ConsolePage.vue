@@ -220,9 +220,9 @@ function handleSelectTab(id: string) {
   justify-content: space-between;
   gap: 12px;
   padding: 8px 12px;
-  border-radius: 16px;
-  border: 1px solid rgba(var(--accent-rgb), 0.35);
-  background: rgba(2, 10, 20, 0.85);
+  border-radius: 0;
+  border: 1px solid rgba(var(--accent-rgb), 0.45);
+  background: var(--panel-core-strong);
   backdrop-filter: blur(12px);
   box-shadow:
     inset 0 1px 0 var(--bevel-light),
@@ -230,6 +230,16 @@ function handleSelectTab(id: string) {
     inset 0 0 18px rgba(var(--accent-rgb), 0.12),
     0 18px 34px var(--depth-shadow);
   position: relative;
+  clip-path: polygon(
+    var(--hud-cut-sm) 0,
+    calc(100% - var(--hud-cut-sm)) 0,
+    100% var(--hud-cut-sm),
+    100% calc(100% - var(--hud-cut-sm)),
+    calc(100% - var(--hud-cut-sm)) 100%,
+    var(--hud-cut-sm) 100%,
+    0 calc(100% - var(--hud-cut-sm)),
+    0 var(--hud-cut-sm)
+  );
 }
 
 .cockpit-header::after {
@@ -253,7 +263,7 @@ function handleSelectTab(id: string) {
   font-size: 0.95rem;
   text-transform: uppercase;
   letter-spacing: 0.28em;
-  font-family: "JetBrains Mono", monospace;
+  font-family: var(--font-display);
   color: var(--text-primary);
   text-shadow:
     0 0 12px rgba(var(--accent-rgb), 0.45),
@@ -360,7 +370,7 @@ function handleSelectTab(id: string) {
   font-size: 0.7rem;
   letter-spacing: 0.12em;
   text-transform: none;
-  font-family: "JetBrains Mono", monospace;
+  font-family: var(--font-body);
 }
 
 .telemetry-bar {
@@ -392,9 +402,9 @@ function handleSelectTab(id: string) {
 }
 
 .telemetry-card {
-  border-radius: 10px;
-  border: 1px solid rgba(var(--accent-rgb), 0.3);
-  background: rgba(2, 10, 20, 0.8);
+  border-radius: 0;
+  border: 1px solid rgba(var(--accent-rgb), 0.35);
+  background: var(--panel-core);
   backdrop-filter: blur(12px);
   box-shadow:
     inset 0 1px 0 var(--bevel-light),
@@ -410,6 +420,16 @@ function handleSelectTab(id: string) {
   text-transform: uppercase;
   letter-spacing: 0.16em;
   color: var(--text-tertiary);
+  clip-path: polygon(
+    var(--hud-cut-xs) 0,
+    calc(100% - var(--hud-cut-xs)) 0,
+    100% var(--hud-cut-xs),
+    100% calc(100% - var(--hud-cut-xs)),
+    calc(100% - var(--hud-cut-xs)) 100%,
+    var(--hud-cut-xs) 100%,
+    0 calc(100% - var(--hud-cut-xs)),
+    0 var(--hud-cut-xs)
+  );
 }
 
 .telemetry-card strong {

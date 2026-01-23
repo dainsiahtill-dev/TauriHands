@@ -408,9 +408,19 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 6px;
   padding: 4px 6px;
-  border-radius: 999px;
-  background: var(--panel-glass);
-  border: 1px solid var(--line);
+  border-radius: 0;
+  background: rgba(4, 12, 22, 0.7);
+  border: 1px solid rgba(var(--line-rgb), 0.4);
+  clip-path: polygon(
+    var(--hud-cut-xs) 0,
+    calc(100% - var(--hud-cut-xs)) 0,
+    100% var(--hud-cut-xs),
+    100% calc(100% - var(--hud-cut-xs)),
+    calc(100% - var(--hud-cut-xs)) 100%,
+    var(--hud-cut-xs) 100%,
+    0 calc(100% - var(--hud-cut-xs)),
+    0 var(--hud-cut-xs)
+  );
 }
 
 .terminal-tab.active {
@@ -465,22 +475,42 @@ onBeforeUnmount(() => {
 }
 
 .tab-add {
-  border-radius: 999px;
+  border-radius: 0;
   border: 1px dashed rgba(var(--accent-rgb), 0.4);
-  background: transparent;
+  background: rgba(2, 10, 20, 0.4);
   color: var(--accent);
   font-size: 1rem;
   padding: 2px 10px;
   cursor: pointer;
+  clip-path: polygon(
+    var(--hud-cut-xs) 0,
+    calc(100% - var(--hud-cut-xs)) 0,
+    100% var(--hud-cut-xs),
+    100% calc(100% - var(--hud-cut-xs)),
+    calc(100% - var(--hud-cut-xs)) 100%,
+    var(--hud-cut-xs) 100%,
+    0 calc(100% - var(--hud-cut-xs)),
+    0 var(--hud-cut-xs)
+  );
 }
 
 .tab-status {
   font-size: 0.7rem;
   padding: 4px 10px;
-  border-radius: 999px;
+  border-radius: 0;
   text-transform: uppercase;
   letter-spacing: 0.12em;
   border: 1px solid transparent;
+  clip-path: polygon(
+    var(--hud-cut-xs) 0,
+    calc(100% - var(--hud-cut-xs)) 0,
+    100% var(--hud-cut-xs),
+    100% calc(100% - var(--hud-cut-xs)),
+    calc(100% - var(--hud-cut-xs)) 100%,
+    var(--hud-cut-xs) 100%,
+    0 calc(100% - var(--hud-cut-xs)),
+    0 var(--hud-cut-xs)
+  );
 }
 
 .tab-status[data-state="live"] {
@@ -517,7 +547,7 @@ onBeforeUnmount(() => {
 .terminal-body {
   flex: 1;
   min-height: 220px;
-  border-radius: 16px;
+  border-radius: 0;
   overflow: hidden;
   border: 1px solid var(--line);
   box-shadow: inset 0 0 22px rgba(var(--accent-rgb), 0.1);
@@ -525,13 +555,23 @@ onBeforeUnmount(() => {
 
 .terminal-capture {
   padding: 14px 16px;
-  border-radius: 16px;
-  background: var(--panel-glass);
-  border: 1px solid rgba(var(--accent-rgb), 0.2);
+  border-radius: 0;
+  background: rgba(3, 10, 20, 0.85);
+  border: 1px solid rgba(var(--accent-rgb), 0.35);
   font-size: 0.85rem;
   color: var(--text-soft);
   max-height: 180px;
   overflow: auto;
+  clip-path: polygon(
+    var(--hud-cut-xs) 0,
+    calc(100% - var(--hud-cut-xs)) 0,
+    100% var(--hud-cut-xs),
+    100% calc(100% - var(--hud-cut-xs)),
+    calc(100% - var(--hud-cut-xs)) 100%,
+    var(--hud-cut-xs) 100%,
+    0 calc(100% - var(--hud-cut-xs)),
+    0 var(--hud-cut-xs)
+  );
 }
 
 .capture-head {
@@ -548,36 +588,46 @@ onBeforeUnmount(() => {
 .terminal-capture pre {
   margin: 0;
   white-space: pre-wrap;
-  font-family: "JetBrains Mono", monospace;
+  font-family: var(--font-body);
 }
 
 .btn {
-  border-radius: 999px;
-  border: 1px solid var(--line);
+  border-radius: 0;
+  border: 1px solid rgba(var(--accent-rgb), 0.5);
   padding: 8px 14px;
   font-size: 0.75rem;
   text-transform: uppercase;
-  letter-spacing: 0.14em;
-  background: transparent;
-  color: var(--text-soft);
+  letter-spacing: 0.16em;
+  background: linear-gradient(135deg, rgba(3, 12, 24, 0.95), rgba(2, 8, 16, 0.85));
+  color: var(--text-primary);
   cursor: pointer;
   transition: all 0.2s ease;
+  clip-path: polygon(
+    var(--hud-cut-xs) 0,
+    calc(100% - var(--hud-cut-xs)) 0,
+    100% var(--hud-cut-xs),
+    100% calc(100% - var(--hud-cut-xs)),
+    calc(100% - var(--hud-cut-xs)) 100%,
+    var(--hud-cut-xs) 100%,
+    0 calc(100% - var(--hud-cut-xs)),
+    0 var(--hud-cut-xs)
+  );
 }
 
 .btn:hover {
-  border-color: rgba(var(--accent-rgb), 0.6);
+  border-color: rgba(var(--accent-rgb), 0.7);
   color: var(--accent);
 }
 
 .btn.accent {
-  background: linear-gradient(135deg, rgba(var(--accent-rgb), 0.9), rgba(var(--status-info-rgb), 0.9));
+  background: linear-gradient(135deg, rgba(var(--accent-rgb), 0.95), rgba(var(--status-info-rgb), 0.8));
   color: var(--bg);
   border-color: transparent;
   box-shadow: 0 0 18px rgba(var(--accent-rgb), 0.35);
 }
 
 .btn.ghost {
-  background: var(--panel-glass);
+  background: rgba(4, 12, 22, 0.7);
 }
 @media (max-width: 900px) {
   .terminal-actions {

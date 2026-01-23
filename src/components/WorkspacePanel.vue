@@ -190,6 +190,9 @@ function extractErrorMessage(error: unknown) {
 .panel-header h3 {
   margin: 0;
   font-size: 1.2rem;
+  font-family: var(--font-display);
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
 }
 
 .badge {
@@ -197,10 +200,20 @@ function extractErrorMessage(error: unknown) {
   text-transform: uppercase;
   letter-spacing: 0.12em;
   padding: 6px 10px;
-  border-radius: 999px;
-  border: 1px solid rgba(var(--accent-rgb), 0.4);
+  border-radius: 0;
+  border: 1px solid rgba(var(--accent-rgb), 0.45);
   color: var(--accent);
   background: rgba(var(--accent-rgb), 0.12);
+  clip-path: polygon(
+    var(--hud-cut-xs) 0,
+    calc(100% - var(--hud-cut-xs)) 0,
+    100% var(--hud-cut-xs),
+    100% calc(100% - var(--hud-cut-xs)),
+    calc(100% - var(--hud-cut-xs)) 100%,
+    var(--hud-cut-xs) 100%,
+    0 calc(100% - var(--hud-cut-xs)),
+    0 var(--hud-cut-xs)
+  );
 }
 
 .search-box {
@@ -210,11 +223,21 @@ function extractErrorMessage(error: unknown) {
 
 .search-box input {
   flex: 1;
-  border-radius: 12px;
-  border: 1px solid var(--line);
+  border-radius: 0;
+  border: 1px solid rgba(var(--line-rgb), 0.45);
   padding: 10px 12px;
-  background: var(--panel-glass);
+  background: rgba(3, 12, 24, 0.9);
   color: var(--text-primary);
+  clip-path: polygon(
+    var(--hud-cut-xs) 0,
+    calc(100% - var(--hud-cut-xs)) 0,
+    100% var(--hud-cut-xs),
+    100% calc(100% - var(--hud-cut-xs)),
+    calc(100% - var(--hud-cut-xs)) 100%,
+    var(--hud-cut-xs) 100%,
+    0 calc(100% - var(--hud-cut-xs)),
+    0 var(--hud-cut-xs)
+  );
 }
 
 .search-box input:disabled {
@@ -263,6 +286,7 @@ function extractErrorMessage(error: unknown) {
   text-transform: uppercase;
   letter-spacing: 0.18em;
   color: var(--text-secondary);
+  font-family: var(--font-display);
 }
 
 .tree {
@@ -284,8 +308,18 @@ function extractErrorMessage(error: unknown) {
   text-transform: uppercase;
   letter-spacing: 0.12em;
   padding: 4px 8px;
-  border-radius: 999px;
+  border-radius: 0;
   border: 1px solid transparent;
+  clip-path: polygon(
+    var(--hud-cut-xs) 0,
+    calc(100% - var(--hud-cut-xs)) 0,
+    100% var(--hud-cut-xs),
+    100% calc(100% - var(--hud-cut-xs)),
+    calc(100% - var(--hud-cut-xs)) 100%,
+    var(--hud-cut-xs) 100%,
+    0 calc(100% - var(--hud-cut-xs)),
+    0 var(--hud-cut-xs)
+  );
 }
 
 .status[data-status="modified"] {
@@ -307,13 +341,25 @@ function extractErrorMessage(error: unknown) {
 }
 
 .btn {
-  border-radius: 10px;
-  border: 1px solid var(--line);
-  padding: 8px 10px;
+  border-radius: 0;
+  border: 1px solid rgba(var(--accent-rgb), 0.5);
+  padding: 8px 12px;
   font-size: 0.7rem;
-  background: var(--panel-glass);
-  color: var(--text-secondary);
+  background: linear-gradient(135deg, rgba(3, 12, 24, 0.95), rgba(2, 8, 16, 0.85));
+  color: var(--text-primary);
   cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  clip-path: polygon(
+    var(--hud-cut-xs) 0,
+    calc(100% - var(--hud-cut-xs)) 0,
+    100% var(--hud-cut-xs),
+    100% calc(100% - var(--hud-cut-xs)),
+    calc(100% - var(--hud-cut-xs)) 100%,
+    var(--hud-cut-xs) 100%,
+    0 calc(100% - var(--hud-cut-xs)),
+    0 var(--hud-cut-xs)
+  );
 }
 
 .btn:disabled {
@@ -327,6 +373,7 @@ function extractErrorMessage(error: unknown) {
   text-transform: uppercase;
   letter-spacing: 0.2em;
   color: var(--status-success);
+  font-family: var(--font-display);
 }
 
 .empty-text {

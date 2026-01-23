@@ -1,6 +1,6 @@
-import { reactive, readonly } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { reactive } from "vue";
 import { terminalStore } from "../stores/terminal";
 import { missionStore } from "../stores/mission";
 
@@ -131,25 +131,58 @@ type JudgeResult = {
   checks: JudgeCheck[];
 };
 
-const state = reactive({
-  run: null as RunState | null,
-  toolCalls: [] as ToolCall[],
-  logs: [] as LogEntry[],
-  events: [] as KernelEvent[],
-  toolOutputs: {} as Record<string, string>,
-  toolCallIndex: {} as Record<string, { entryIndex: number; toolIndex: number }>,
-  chatEntries: [] as ChatEntry[],
+type UserInputOptions = {
+  chatOnly?: boolean;
+};
+
+type AgentStoreState = {
+  run: RunState | null;
+  toolCalls: ToolCall[];
+  logs: LogEntry[];
+  events: KernelEvent[];
+  toolOutputs: Record<string, string>;
+  toolCallIndex: Record<string, { entryIndex: number; toolIndex: number }>;
+  chatEntries: ChatEntry[];
+  llmStream: LlmStream;
+  judgeResult: JudgeResult | null;
+  timelineFocusId: string;
+};
+
+const state = reactive<AgentStoreState>({
+  run: null,
+  toolCalls: [],
+  logs: [],
+  events: [],
+  toolOutputs: {},
+  toolCallIndex: {},
+  chatEntries: [],
   llmStream: {
     content: "",
     updatedAt: 0,
     active: false,
-  } as LlmStream,
-  judgeResult: null as JudgeResult | null,
-  timelineFocusId: "" as string,
+  },
+  judgeResult: null,
+  timelineFocusId: "",
 });
 
-function applyRun(next: RunState) {
+const listeners = new Set<(next: AgentStoreState) => void>();
+
+function notify() {
+  for (const listener of listeners) {
+    listener(state);
+  }
+}
+
+function subscribe(listener: (next: AgentStoreState) => void) {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+
+function applyRun(next: RunState, shouldNotify = true) {
   state.run = next;
+  if (shouldNotify) {
+    notify();
+  }
 }
 
 function applyEvent(event: KernelEvent) {
@@ -172,128 +205,110 @@ function applyEvent(event: KernelEvent) {
       state.timelineFocusId = "";
     }
     if (payload?.state) {
-      applyRun(payload.state);
+      applyRun(payload.state, false);
     }
-    return;
-  }
-
-  if (event.type === "UserMessage") {
+  } else if (event.type === "UserMessage") {
     const payload = event.payload as { content?: string };
     const content = String(payload.content ?? "").trim();
-    if (!content) return;
-    state.chatEntries.push({
-      id: event.id,
-      role: "user",
-      content,
-      timestamp: event.ts,
-      toolCalls: [],
-    });
-    return;
-  }
-
-  if (event.type === "AgentMessage") {
+    if (content) {
+      state.chatEntries.push({
+        id: event.id,
+        role: "user",
+        content,
+        timestamp: event.ts,
+        toolCalls: [],
+      });
+    }
+  } else if (event.type === "AgentMessage") {
     const payload = event.payload as { content?: string };
     const content = String(payload.content ?? "").trim();
     if (!content) {
       state.llmStream.active = false;
       state.llmStream.content = "";
-      return;
-    }
-    state.chatEntries.push({
-      id: event.id,
-      role: "assistant",
-      content,
-      timestamp: event.ts,
-      toolCalls: [],
-    });
-    state.llmStream.active = false;
-    state.llmStream.content = "";
-    return;
-  }
-
-  if (event.type === "ToolCallStarted") {
-    const payload = event.payload as { action?: Record<string, unknown> };
-    const action = payload.action ?? {};
-    const id = String(action.id ?? "");
-    if (!id) return;
-    state.toolOutputs[id] = "";
-    if (!state.chatEntries.length) {
+    } else {
       state.chatEntries.push({
-        id: `system-${event.id}`,
-        role: "system",
-        content: "Tool activity",
+        id: event.id,
+        role: "assistant",
+        content,
         timestamp: event.ts,
         toolCalls: [],
       });
-    }
-    const entryIndex = state.chatEntries.length - 1;
-    const entry = state.chatEntries[entryIndex];
-    const toolIndex = entry.toolCalls.length;
-    entry.toolCalls.push({
-      id,
-      tool: String(action.type ?? "tool"),
-      detail: describeAction(action),
-      status: "running",
-      startedAt: event.ts,
-      output: "",
-    });
-    state.toolCallIndex[id] = { entryIndex, toolIndex };
-    state.toolCalls.unshift({
-      id,
-      tool: String(action.type ?? "tool"),
-      detail: describeAction(action),
-      status: "running",
-      startedAt: event.ts,
-    });
-    return;
-  }
-
-  if (event.type === "ToolCallChunk") {
-    const payload = event.payload as { action_id?: string; chunk?: string };
-    const id = String(payload.action_id ?? "");
-    if (!id) return;
-    const chunk = String(payload.chunk ?? "");
-    if (!chunk) return;
-    const current = state.toolOutputs[id] ?? "";
-    const next = `${current}${chunk}`;
-    const limit = 8000;
-    state.toolOutputs[id] = next.length > limit ? next.slice(next.length - limit) : next;
-    const index = state.toolCallIndex[id];
-    if (index) {
-      const entry = state.chatEntries[index.entryIndex];
-      const toolEntry = entry?.toolCalls[index.toolIndex];
-      if (toolEntry) {
-        const existing = toolEntry.output ?? "";
-        const output = `${existing}${chunk}`;
-        toolEntry.output = output.length > limit ? output.slice(output.length - limit) : output;
-      }
-    }
-    return;
-  }
-
-  if (event.type === "AgentMessageChunk") {
-    const payload = event.payload as { content?: string };
-    const chunk = String(payload.content ?? "");
-    if (!chunk) return;
-    if (!state.llmStream.active) {
+      state.llmStream.active = false;
       state.llmStream.content = "";
     }
-    const current = state.llmStream.content ?? "";
-    const next = `${current}${chunk}`;
-    const limit = 8000;
-    state.llmStream.content = next.length > limit ? next.slice(next.length - limit) : next;
-    state.llmStream.updatedAt = event.ts;
-    state.llmStream.active = true;
-    return;
-  }
-
-  if (event.type === "AgentMessageDone") {
+  } else if (event.type === "ToolCallStarted") {
+    const payload = event.payload as { action?: Record<string, unknown> };
+    const action = payload.action ?? {};
+    const id = String(action.id ?? "");
+    if (id) {
+      state.toolOutputs[id] = "";
+      if (!state.chatEntries.length) {
+        state.chatEntries.push({
+          id: `system-${event.id}`,
+          role: "system",
+          content: "Tool activity",
+          timestamp: event.ts,
+          toolCalls: [],
+        });
+      }
+      const entryIndex = state.chatEntries.length - 1;
+      const entry = state.chatEntries[entryIndex];
+      const toolIndex = entry.toolCalls.length;
+      entry.toolCalls.push({
+        id,
+        tool: String(action.type ?? "tool"),
+        detail: describeAction(action),
+        status: "running",
+        startedAt: event.ts,
+        output: "",
+      });
+      state.toolCallIndex[id] = { entryIndex, toolIndex };
+      state.toolCalls.unshift({
+        id,
+        tool: String(action.type ?? "tool"),
+        detail: describeAction(action),
+        status: "running",
+        startedAt: event.ts,
+      });
+    }
+  } else if (event.type === "ToolCallChunk") {
+    const payload = event.payload as { action_id?: string; chunk?: string };
+    const id = String(payload.action_id ?? "");
+    const chunk = String(payload.chunk ?? "");
+    if (id && chunk) {
+      const current = state.toolOutputs[id] ?? "";
+      const next = `${current}${chunk}`;
+      const limit = 8000;
+      state.toolOutputs[id] = next.length > limit ? next.slice(next.length - limit) : next;
+      const index = state.toolCallIndex[id];
+      if (index) {
+        const entry = state.chatEntries[index.entryIndex];
+        const toolEntry = entry?.toolCalls[index.toolIndex];
+        if (toolEntry) {
+          const existing = toolEntry.output ?? "";
+          const output = `${existing}${chunk}`;
+          toolEntry.output = output.length > limit ? output.slice(output.length - limit) : output;
+        }
+      }
+    }
+  } else if (event.type === "AgentMessageChunk") {
+    const payload = event.payload as { content?: string };
+    const chunk = String(payload.content ?? "");
+    if (chunk) {
+      if (!state.llmStream.active) {
+        state.llmStream.content = "";
+      }
+      const current = state.llmStream.content ?? "";
+      const next = `${current}${chunk}`;
+      const limit = 8000;
+      state.llmStream.content = next.length > limit ? next.slice(next.length - limit) : next;
+      state.llmStream.updatedAt = event.ts;
+      state.llmStream.active = true;
+    }
+  } else if (event.type === "AgentMessageDone") {
     state.llmStream.active = false;
     state.llmStream.content = "";
-    return;
-  }
-
-  if (event.type === "ToolCallFinished") {
+  } else if (event.type === "ToolCallFinished") {
     const payload = event.payload as {
       action?: Record<string, unknown>;
       ok?: boolean;
@@ -302,35 +317,33 @@ function applyEvent(event: KernelEvent) {
     };
     const action = payload.action ?? {};
     const id = String(action.id ?? "");
-    if (!id) return;
-    const call = state.toolCalls.find((item) => item.id === id);
-    if (call) {
-      call.status = payload.ok ? "ok" : "error";
-      call.exitCode = payload.exit_code ?? null;
-      call.summary = payload.summary ?? null;
-      call.finishedAt = event.ts;
-    }
-    const index = state.toolCallIndex[id];
-    if (index) {
-      const entry = state.chatEntries[index.entryIndex];
-      const toolEntry = entry?.toolCalls[index.toolIndex];
-      if (toolEntry) {
-        toolEntry.status = payload.ok ? "ok" : "error";
-        toolEntry.exitCode = payload.exit_code ?? null;
-        toolEntry.summary = payload.summary ?? null;
-        toolEntry.finishedAt = event.ts;
-        if (!toolEntry.output) {
-          const output = state.toolOutputs[id];
-          if (output) {
-            toolEntry.output = output;
+    if (id) {
+      const call = state.toolCalls.find((item) => item.id === id);
+      if (call) {
+        call.status = payload.ok ? "ok" : "error";
+        call.exitCode = payload.exit_code ?? null;
+        call.summary = payload.summary ?? null;
+        call.finishedAt = event.ts;
+      }
+      const index = state.toolCallIndex[id];
+      if (index) {
+        const entry = state.chatEntries[index.entryIndex];
+        const toolEntry = entry?.toolCalls[index.toolIndex];
+        if (toolEntry) {
+          toolEntry.status = payload.ok ? "ok" : "error";
+          toolEntry.exitCode = payload.exit_code ?? null;
+          toolEntry.summary = payload.summary ?? null;
+          toolEntry.finishedAt = event.ts;
+          if (!toolEntry.output) {
+            const output = state.toolOutputs[id];
+            if (output) {
+              toolEntry.output = output;
+            }
           }
         }
       }
     }
-    return;
-  }
-
-  if (event.type === "Error") {
+  } else if (event.type === "Error") {
     const payload = event.payload as { message?: string };
     const message = payload.message ?? "Unknown error";
     state.logs.unshift({
@@ -339,16 +352,15 @@ function applyEvent(event: KernelEvent) {
       message,
       timestamp: event.ts,
     });
-    return;
-  }
-
-  if (event.type === "JudgeResult") {
+  } else if (event.type === "JudgeResult") {
     const payload = event.payload as { result?: JudgeResult };
     if (payload?.result) {
       state.judgeResult = payload.result;
       state.timelineFocusId = event.id;
     }
   }
+
+  notify();
 }
 
 function describeAction(action: Record<string, unknown>) {
@@ -396,6 +408,7 @@ async function initKernelStore() {
           toolCalls: [],
         });
       });
+      notify();
     }
   } catch (error) {
     console.warn("Unable to load kernel state", error);
@@ -417,7 +430,7 @@ async function start() {
   const taskId = missionStore.state.active?.taskId || undefined;
   const snapshot = (await invoke("kernel_start", {
     request: {
-      session_id: terminalStore.activeSessionId.value,
+      session_id: terminalStore.state.activeSessionId,
       max_steps: 8,
       task_id: taskId,
     },
@@ -450,8 +463,12 @@ async function reset() {
   await start();
 }
 
-async function userInput(content: string) {
-  const snapshot = (await invoke("kernel_user_input", { request: { content } })) as RunState;
+async function userInput(content: string, options: UserInputOptions = {}) {
+  const request: { content: string; chat_only?: boolean } = { content };
+  if (options.chatOnly) {
+    request.chat_only = true;
+  }
+  const snapshot = (await invoke("kernel_user_input", { request })) as RunState;
   applyRun(snapshot);
 }
 
@@ -472,7 +489,8 @@ async function updatePlanStatus(id: string, status: string) {
 }
 
 export const agentStore = {
-  state: readonly(state),
+  state,
+  subscribe,
   initKernelStore,
   start,
   pause,

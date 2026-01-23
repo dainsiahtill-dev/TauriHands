@@ -4,7 +4,7 @@ use std::fs;
 use std::path::{Component, Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct WorkspaceState {
     root: Arc<Mutex<PathBuf>>,
 }

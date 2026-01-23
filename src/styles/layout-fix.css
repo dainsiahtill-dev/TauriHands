@@ -1,0 +1,107 @@
+/* Layout Fix for UI Issues */
+@layer components {
+  /* Ensure proper container sizing */
+  .app-shell {
+    position: relative;
+    height: 100vh;
+    width: 100vw;
+    overflow: hidden;
+  }
+
+  /* Fix app frame overflow */
+  .app-frame {
+    max-height: 100vh;
+    max-width: 100vw;
+    overflow: hidden;
+  }
+
+  /* Ensure proper grid layout */
+  .app-header {
+    min-height: auto;
+    overflow: hidden;
+  }
+
+  .app-header__left,
+  .app-header__center,
+  .app-header__right {
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  /* Fix body layout */
+  .app-body {
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  /* Fix panel content overflow */
+  .panel-content {
+    overflow: auto;
+    max-height: 100%;
+  }
+
+  /* Fix text overflow */
+  .brand-title,
+  .brand-subtitle,
+  .header-chip,
+  .header-search {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* Ensure proper button sizing */
+  .nav-button {
+    min-width: 0;
+    flex-shrink: 0;
+  }
+
+  /* Fix cockpit grid */
+  .cockpit-grid {
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  /* Ensure proper panel sizing */
+  .panel-shell {
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  /* Fix card overflow */
+  .card {
+    overflow: hidden;
+  }
+
+  /* Ensure proper text sizing */
+  .panel-title {
+    font-size: 1.1rem;
+    line-height: 1.4;
+  }
+
+  .section-title {
+    font-size: 0.75rem;
+    line-height: 1.3;
+  }
+
+  /* Fix responsive issues */
+  @media (max-width: 768px) {
+    .app-frame {
+      padding: 8px;
+      gap: 8px;
+    }
+
+    .app-header {
+      padding: 8px;
+      gap: 8px;
+    }
+
+    .brand-title {
+      font-size: 0.9rem;
+    }
+
+    .brand-subtitle {
+      font-size: 0.7rem;
+    }
+  }
+}

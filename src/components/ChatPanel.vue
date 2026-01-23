@@ -75,13 +75,30 @@ async function handleStop() {
   }
 }
 
-async function sendMessage() {
+function resolveChatPayload(value: string, forceChatOnly: boolean) {
+  if (forceChatOnly) {
+    return { content: value, chatOnly: true };
+  }
+  const trimmed = value.trim();
+  if (trimmed.toLowerCase().startsWith("/chat")) {
+    const content = trimmed.slice(5).trimStart();
+    return { content, chatOnly: true };
+  }
+  return { content: value, chatOnly: false };
+}
+
+async function sendMessage(forceChatOnly = false) {
   const value = input.value.trim();
   if (!value) return;
   sendError.value = "";
+  const payload = resolveChatPayload(value, forceChatOnly);
+  if (!payload.content.trim()) {
+    sendError.value = "Chat message cannot be empty.";
+    return;
+  }
   input.value = "";
   try {
-    await userInput(value);
+    await userInput(payload.content, payload.chatOnly ? { chatOnly: true } : undefined);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     sendError.value = message || "Unable to send message.";
@@ -212,16 +229,19 @@ watch(
             ref="inputRef"
             v-model="input"
             rows="2"
-            placeholder="Type a request for the agent (Ctrl+Enter to send)"
+            placeholder="Type a request for the agent (/chat for chat-only)"
             class="chat-input__field"
             @keydown.ctrl.enter.prevent="sendMessage"
           ></textarea>
-          <button class="btn primary" type="button" :disabled="!input.trim()" @click="sendMessage">
+          <button class="btn ghost" type="button" :disabled="!input.trim()" @click="sendMessage(true)">
+            Chat only
+          </button>
+          <button class="btn primary" type="button" :disabled="!input.trim()" @click="sendMessage()">
             Send
           </button>
         </div>
         <div class="chat-input__meta">
-          <span>Ctrl+Enter to send</span>
+          <span>Ctrl+Enter to send • /chat for chat-only</span>
           <span>Orchestrator: <span class="text-status-success">Online</span></span>
         </div>
         <p v-if="sendError" class="mt-2 text-xs text-status-warning">{{ sendError }}</p>
@@ -244,7 +264,7 @@ summary::marker {
   flex-direction: column;
   height: 100%;
   min-height: 0;
-  background: rgba(7, 12, 22, 0.55);
+  background: rgba(6, 12, 22, 0.6);
   position: relative;
   overflow: hidden;
 }
@@ -265,7 +285,7 @@ summary::marker {
   justify-content: space-between;
   padding: 10px 16px;
   border-bottom: 1px solid rgba(var(--line-rgb), 0.28);
-  background: rgba(8, 14, 26, 0.85);
+  background: linear-gradient(135deg, rgba(5, 12, 24, 0.95), rgba(2, 8, 16, 0.9));
   box-shadow: inset 0 0 14px rgba(var(--accent-rgb), 0.12);
   font-size: 0.6rem;
   text-transform: uppercase;
@@ -273,6 +293,7 @@ summary::marker {
   color: var(--text-tertiary);
   position: relative;
   z-index: 1;
+  font-family: var(--font-display);
 }
 
 .chat-banner strong {
@@ -282,13 +303,23 @@ summary::marker {
 
 .state-chip {
   padding: 4px 10px;
-  border-radius: 999px;
-  border: 1px solid rgba(var(--line-rgb), 0.4);
-  background: rgba(8, 14, 26, 0.8);
+  border-radius: 0;
+  border: 1px solid rgba(var(--line-rgb), 0.45);
+  background: rgba(8, 14, 26, 0.85);
   font-size: 0.55rem;
   text-transform: uppercase;
   letter-spacing: 0.2em;
   color: var(--text-secondary);
+  clip-path: polygon(
+    var(--hud-cut-xs) 0,
+    calc(100% - var(--hud-cut-xs)) 0,
+    100% var(--hud-cut-xs),
+    100% calc(100% - var(--hud-cut-xs)),
+    calc(100% - var(--hud-cut-xs)) 100%,
+    var(--hud-cut-xs) 100%,
+    0 calc(100% - var(--hud-cut-xs)),
+    0 var(--hud-cut-xs)
+  );
 }
 
 .state-chip[data-state="RUNNING"] {
@@ -384,27 +415,47 @@ summary::marker {
 
 .chat-role {
   padding: 2px 8px;
-  border-radius: 999px;
-  border: 1px solid rgba(var(--line-rgb), 0.3);
+  border-radius: 0;
+  border: 1px solid rgba(var(--line-rgb), 0.4);
   background: rgba(7, 12, 22, 0.6);
   color: var(--text-secondary);
+  clip-path: polygon(
+    var(--hud-cut-xs) 0,
+    calc(100% - var(--hud-cut-xs)) 0,
+    100% var(--hud-cut-xs),
+    100% calc(100% - var(--hud-cut-xs)),
+    calc(100% - var(--hud-cut-xs)) 100%,
+    var(--hud-cut-xs) 100%,
+    0 calc(100% - var(--hud-cut-xs)),
+    0 var(--hud-cut-xs)
+  );
 }
 
 .chat-time {
-  font-family: "JetBrains Mono", monospace;
+  font-family: var(--font-body);
   font-size: 0.6rem;
   color: var(--text-tertiary);
 }
 
 .chat-bubble {
-  border-radius: 16px;
-  border: 1px solid rgba(var(--line-rgb), 0.35);
+  border-radius: 0;
+  border: 1px solid rgba(var(--line-rgb), 0.4);
   padding: 10px 14px;
   font-size: 0.85rem;
   line-height: 1.5;
   background: rgba(7, 12, 22, 0.78);
   color: var(--text-soft);
   box-shadow: inset 0 0 12px rgba(var(--accent-rgb), 0.08);
+  clip-path: polygon(
+    var(--hud-cut-xs) 0,
+    calc(100% - var(--hud-cut-xs)) 0,
+    100% var(--hud-cut-xs),
+    100% calc(100% - var(--hud-cut-xs)),
+    calc(100% - var(--hud-cut-xs)) 100%,
+    var(--hud-cut-xs) 100%,
+    0 calc(100% - var(--hud-cut-xs)),
+    0 var(--hud-cut-xs)
+  );
 }
 
 .chat-bubble--user {
@@ -425,10 +476,20 @@ summary::marker {
 }
 
 .tool-detail {
-  border-radius: 12px;
-  border: 1px solid rgba(var(--line-rgb), 0.28);
+  border-radius: 0;
+  border: 1px solid rgba(var(--line-rgb), 0.35);
   background: rgba(7, 12, 22, 0.75);
   overflow: hidden;
+  clip-path: polygon(
+    var(--hud-cut-xs) 0,
+    calc(100% - var(--hud-cut-xs)) 0,
+    100% var(--hud-cut-xs),
+    100% calc(100% - var(--hud-cut-xs)),
+    calc(100% - var(--hud-cut-xs)) 100%,
+    var(--hud-cut-xs) 100%,
+    0 calc(100% - var(--hud-cut-xs)),
+    0 var(--hud-cut-xs)
+  );
 }
 
 .tool-summary {
@@ -447,9 +508,19 @@ summary::marker {
 
 .tool-chip {
   padding: 2px 6px;
-  border-radius: 999px;
-  border: 1px solid rgba(var(--line-rgb), 0.35);
+  border-radius: 0;
+  border: 1px solid rgba(var(--line-rgb), 0.4);
   font-size: 0.55rem;
+  clip-path: polygon(
+    var(--hud-cut-xs) 0,
+    calc(100% - var(--hud-cut-xs)) 0,
+    100% var(--hud-cut-xs),
+    100% calc(100% - var(--hud-cut-xs)),
+    calc(100% - var(--hud-cut-xs)) 100%,
+    var(--hud-cut-xs) 100%,
+    0 calc(100% - var(--hud-cut-xs)),
+    0 var(--hud-cut-xs)
+  );
 }
 
 .tool-status {
@@ -489,12 +560,12 @@ summary::marker {
 .tool-body pre {
   margin: 0 0 8px;
   white-space: pre-wrap;
-  font-family: "JetBrains Mono", monospace;
+  font-family: var(--font-body);
   font-size: 0.7rem;
   color: var(--text-primary);
   background: rgba(5, 8, 14, 0.7);
   border: 1px solid rgba(var(--line-rgb), 0.24);
-  border-radius: 8px;
+  border-radius: 0;
   padding: 8px;
 }
 
@@ -521,10 +592,20 @@ summary::marker {
   align-items: flex-end;
   gap: 10px;
   padding: 8px 10px;
-  border-radius: 14px;
-  border: 1px solid rgba(var(--line-rgb), 0.35);
+  border-radius: 0;
+  border: 1px solid rgba(var(--line-rgb), 0.45);
   background: rgba(7, 12, 22, 0.75);
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  clip-path: polygon(
+    var(--hud-cut-xs) 0,
+    calc(100% - var(--hud-cut-xs)) 0,
+    100% var(--hud-cut-xs),
+    100% calc(100% - var(--hud-cut-xs)),
+    calc(100% - var(--hud-cut-xs)) 100%,
+    var(--hud-cut-xs) 100%,
+    0 calc(100% - var(--hud-cut-xs)),
+    0 var(--hud-cut-xs)
+  );
 }
 
 .chat-input__box:focus-within {

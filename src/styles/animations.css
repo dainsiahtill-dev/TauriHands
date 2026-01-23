@@ -1,0 +1,127 @@
+@layer utilities {
+  @keyframes pulse {
+    0%, 100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.5;
+    }
+  }
+
+  @keyframes hud-sweep {
+    0% {
+      background-position: -200% 0;
+    }
+    100% {
+      background-position: 200% 0;
+    }
+  }
+
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes slide-up {
+    from {
+      opacity: 0;
+      transform: translateY(20px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes glow {
+    0%, 100% {
+      box-shadow: 0 0 5px rgba(var(--accent-rgb), 0.5);
+    }
+    50% {
+      box-shadow: 0 0 20px rgba(var(--accent-rgb), 0.8);
+    }
+  }
+
+  @keyframes rotate {
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  @keyframes blink {
+    0%, 50% {
+      opacity: 1;
+    }
+    51%, 100% {
+      opacity: 0;
+    }
+  }
+
+  .animate-pulse {
+    animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
+
+  .animate-hud-sweep {
+    animation: hud-sweep 12s linear infinite;
+  }
+
+  .animate-fade-in {
+    animation: fade-in 0.3s ease-out;
+  }
+
+  .animate-slide-up {
+    animation: slide-up 0.3s ease-out;
+  }
+
+  .animate-glow {
+    animation: glow 2s ease-in-out infinite;
+  }
+
+  .animate-rotate {
+    animation: rotate 2s linear infinite;
+  }
+
+  .animate-blink {
+    animation: blink 1s ease-in-out infinite;
+  }
+
+  .transition-all {
+    transition: all var(--transition-duration) var(--transition-timing);
+  }
+
+  .transition-colors {
+    transition: color var(--transition-duration) var(--transition-timing),
+                background-color var(--transition-duration) var(--transition-timing),
+                border-color var(--transition-duration) var(--transition-timing);
+  }
+
+  .transition-transform {
+    transition: transform var(--transition-duration) var(--transition-timing);
+  }
+
+  .transition-opacity {
+    transition: opacity var(--transition-duration) var(--transition-timing);
+  }
+
+  .hover-lift:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 0 20px rgba(var(--accent-rgb), 0.3);
+  }
+
+  .hover-glow:hover {
+    box-shadow: 0 0 15px rgba(var(--accent-rgb), 0.4);
+  }
+
+  .active-scale:active {
+    transform: scale(0.98);
+  }
+}

@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fs::{create_dir_all, OpenOptions};
@@ -12,15 +13,127 @@ use uuid::Uuid;
 
 use crate::services::audit::now_ms;
 use crate::services::audit::AuditLog;
-use crate::services::judge::{JudgeContext, JudgeEngine, JudgeRule, JudgeRuleOutcome};
-use crate::services::llm::{request_completion, request_completion_stream, LlmProfile, LlmStore};
+use crate::services::llm::{
+    request_completion, request_completion_stream, LlmProfile, LlmResponseFormat, LlmStore,
+};
 use crate::services::pty::{TerminalExecRequest, TerminalManager};
-use crate::services::tool_dispatcher::ToolDispatcher as ToolDispatcherTrait;
 use crate::services::tools::{
     max_read_bytes, read_file, run_command, search, write_file, CommandRequest, ReadFileRequest,
     SearchMatch, SearchRequest, ToolResult, WriteFileRequest,
 };
 use crate::services::workspace::{display_path, resolve_read_path_with_fallback, WorkspaceState};
+
+#[derive(Clone, Debug, Serialize)]
+pub struct JudgeResult {
+    pub status: String,
+    pub message: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct JudgeEngine {
+    pub rules: Vec<JudgeRule>,
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct JudgeRule {
+    pub rule_type: String,
+    pub pattern: String,
+    pub action: String,
+    pub command: Option<Vec<String>>,
+    pub fail_match: Option<String>,
+    pub success_match: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+pub struct JudgeRuleOutcome {
+    pub success: bool,
+    pub message: String,
+    pub evidence: Vec<String>,
+}
+
+impl JudgeRuleOutcome {
+    pub fn pass() -> Self {
+        Self {
+            success: true,
+            message: "Rule passed".to_string(),
+            evidence: Vec::new(),
+        }
+    }
+
+    pub fn fail(message: String) -> Self {
+        Self {
+            success: false,
+            message,
+            evidence: Vec::new(),
+        }
+    }
+}
+
+impl JudgeEngine {
+    pub fn new() -> Self {
+        Self {
+            rules: Vec::new(),
+        }
+    }
+
+    pub fn set_rules(&mut self, rules: Vec<JudgeRule>) {
+        self.rules = rules;
+    }
+
+    pub fn rules(&self) -> &[JudgeRule] {
+        &self.rules
+    }
+
+    pub fn evaluate_rules<F>(
+        rules: &[JudgeRule],
+        context: &JudgeContext,
+        evaluator: F,
+    ) -> JudgeResult
+    where
+        F: Fn(&JudgeRule, &JudgeContext) -> JudgeRuleOutcome,
+    {
+        for rule in rules {
+            let outcome = evaluator(rule, context);
+            if !outcome.success {
+                return JudgeResult {
+                    status: "fail".to_string(),
+                    message: outcome.message,
+                };
+            }
+        }
+
+        JudgeResult {
+            status: "pass".to_string(),
+            message: "All rules passed".to_string(),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct JudgeContext {
+    pub command: String,
+    pub exit_code: i32,
+    pub stdout: String,
+    pub stderr: String,
+}
+
+#[async_trait]
+pub trait ToolDispatcher: Send + Sync {
+    fn dispatch(
+        &self,
+        action: &Action,
+        session_id: Option<String>,
+        on_chunk: &mut dyn FnMut(String),
+    ) -> Result<Observation, String>;
+}
+
+#[derive(Clone, Default)]
+pub struct KernelConfig {
+    pub max_steps: u32,
+    pub timeout_seconds: u64,
+    pub auto_confirm: bool,
+    pub log_level: String,
+}
 
 const KERNEL_EVENT_NAME: &str = "kernel-event";
 
@@ -486,7 +599,7 @@ impl Runtime {
     }
 }
 
-impl ToolDispatcherTrait for Runtime {
+impl ToolDispatcher for Runtime {
     fn dispatch(
         &self,
         action: &Action,
@@ -543,6 +656,8 @@ pub struct KernelStartRequest {
 #[derive(Deserialize)]
 pub struct KernelUserInputRequest {
     pub content: String,
+    #[serde(default)]
+    pub chat_only: bool,
 }
 
 #[derive(Deserialize)]
@@ -751,6 +866,8 @@ impl KernelManager {
         let stop_command = is_stop_command(content);
         let mut control_stop = false;
         let mut should_spawn = false;
+        let mut chat_only = request.chat_only;
+        let mut chat_blocked = false;
         let snapshot = self.update_state(|state| {
             if stop_command {
                 control_stop = true;
@@ -758,7 +875,19 @@ impl KernelManager {
                 state.last_error = None;
                 return;
             }
-            if state.agent_state == RunAgentState::AwaitingUser {
+            if chat_only && state.agent_state == RunAgentState::Running {
+                chat_blocked = true;
+                return;
+            }
+            if !chat_only
+                && matches!(
+                    state.agent_state,
+                    RunAgentState::Idle | RunAgentState::Finished | RunAgentState::Error
+                )
+            {
+                chat_only = true;
+            }
+            if state.agent_state == RunAgentState::AwaitingUser && !chat_only {
                 if is_continue_command(content) {
                     if let Some(reply) = infer_default_continue_reply(state) {
                         final_content = reply;
@@ -772,11 +901,16 @@ impl KernelManager {
                 content: final_content.clone(),
             });
             state.turn = state.turn.saturating_add(1);
-            if state.agent_state != RunAgentState::Running {
-                state.agent_state = RunAgentState::Running;
+            if !chat_only {
+                if state.agent_state != RunAgentState::Running {
+                    state.agent_state = RunAgentState::Running;
+                }
+                should_spawn = true;
             }
-            should_spawn = true;
         })?;
+        if chat_blocked {
+            return Err("Agent is running. Pause or stop before chat-only messages.".to_string());
+        }
         self.events.emit(
             app,
             "UserMessage",
@@ -788,6 +922,14 @@ impl KernelManager {
             return Ok(snapshot);
         }
         self.emit_state(app, "user_input");
+        if chat_only {
+            let manager = self.clone();
+            let app_handle = app.clone();
+            tauri::async_runtime::spawn(async move {
+                manager.respond_in_chat_mode(app_handle).await;
+            });
+            return Ok(snapshot);
+        }
         if should_spawn && !self.running.swap(true, Ordering::SeqCst) {
             let manager = self.clone();
             let app_handle = app.clone();
@@ -796,6 +938,88 @@ impl KernelManager {
             });
         }
         Ok(snapshot)
+    }
+
+    async fn respond_in_chat_mode(&self, app: AppHandle) {
+        let profile = match self.llm.get_active_profile() {
+            Some(profile) => profile,
+            None => {
+                let message =
+                    "LLM profile not configured. Save a profile in LLM Settings.".to_string();
+                let _ = self.update_state(|state| {
+                    state.last_error = Some(message.clone());
+                });
+                self.events
+                    .emit(&app, "Error", &serde_json::json!({ "message": message }));
+                self.emit_state(&app, "chat_error");
+                return;
+            }
+        };
+        let snapshot = match self.snapshot_agent_state() {
+            Ok(state) => state,
+            Err(err) => {
+                self.events
+                    .emit(&app, "Error", &serde_json::json!({ "message": err }));
+                return;
+            }
+        };
+        let system_prompt = build_chat_system_prompt(&profile);
+        let user_prompt = build_chat_user_prompt(&snapshot);
+        let events = self.events.clone();
+        let app_handle = app.clone();
+        let raw = match request_completion_stream(
+            &profile,
+            &system_prompt,
+            &user_prompt,
+            LlmResponseFormat::Text,
+            |chunk| {
+                if !chunk.trim().is_empty() {
+                    events.emit(
+                        &app_handle,
+                        "AgentMessageChunk",
+                        &serde_json::json!({ "content": chunk }),
+                    );
+                }
+            },
+        )
+        .await
+        {
+            Ok(content) => content,
+            Err(err) => {
+                self.events
+                    .emit(&app, "Error", &serde_json::json!({ "message": err }));
+                let _ = self.update_state(|state| {
+                    state.last_error = Some(err);
+                });
+                self.events
+                    .emit(&app, "AgentMessageDone", &serde_json::json!({}));
+                self.emit_state(&app, "chat_error");
+                return;
+            }
+        };
+        self.events
+            .emit(&app, "AgentMessageDone", &serde_json::json!({}));
+        let content = raw.trim().to_string();
+        if content.is_empty() {
+            let message = "LLM response is empty".to_string();
+            let _ = self.update_state(|state| {
+                state.last_error = Some(message.clone());
+            });
+            self.events
+                .emit(&app, "Error", &serde_json::json!({ "message": message }));
+            self.emit_state(&app, "chat_error");
+            return;
+        }
+        let _ = self.update_state(|state| {
+            state.messages.push(ChatMessage {
+                role: "assistant".to_string(),
+                content: content.clone(),
+            });
+            state.last_error = None;
+        });
+        self.events
+            .emit(&app, "AgentMessage", &serde_json::json!({ "content": content }));
+        self.emit_state(&app, "chat_response");
     }
 
     pub async fn update_plan(
@@ -867,10 +1091,16 @@ impl KernelManager {
         })?;
         let system_prompt = build_plan_system_prompt(&profile);
         let user_prompt = format!(
-            "Goal: {}\nReturn JSON only. Format: {{\"goal\":\"...\",\"steps\":[\"step 1\",\"step 2\"]}} or [\"step 1\",\"step 2\"].",
+            "Goal: {}\nReturn JSON only. Format: {{\"goal\":\"...\",\"steps\":[\"step 1\",\"step 2\"]}}.",
             goal
         );
-        let raw = request_completion(&profile, &system_prompt, &user_prompt).await?;
+        let raw = request_completion(
+            &profile,
+            &system_prompt,
+            &user_prompt,
+            LlmResponseFormat::PlanJson,
+        )
+        .await?;
         parse_plan_response(&raw, Some(goal))
     }
 
@@ -1201,8 +1431,10 @@ impl KernelManager {
     fn evaluate_judge(&self, app: &AppHandle, snapshot: &RunState) -> Result<bool, String> {
         let rules = self.get_judge_rules().unwrap_or_default();
         let context = JudgeContext {
-            iteration: snapshot.budget.used_steps,
-            last_error: snapshot.last_error.clone(),
+            command: snapshot.tool_context.cwd.clone(),
+            exit_code: 0,
+            stdout: snapshot.recent_observations.join("\n"),
+            stderr: snapshot.last_error.clone().unwrap_or_default(),
         };
         let result = JudgeEngine::evaluate_rules(&rules, &context, |rule, ctx| {
             self.evaluate_judge_rule(app, rule, ctx)
@@ -1215,7 +1447,7 @@ impl KernelManager {
     fn apply_judge_result(
         &self,
         app: &AppHandle,
-        result: &crate::services::judge::JudgeResult,
+        result: &JudgeResult,
     ) -> Result<bool, String> {
         match result.status.as_str() {
             "pass" => {
@@ -1227,10 +1459,10 @@ impl KernelManager {
                 Ok(true)
             }
             "fail" => {
-                let summary = if result.reasons.is_empty() {
+                let summary = if result.message.trim().is_empty() {
                     "Judge failed".to_string()
                 } else {
-                    trim_to(&result.reasons.join(" | "), 800)
+                    trim_to(&result.message, 800)
                 };
                 let _ = self.update_state(|state| {
                     state.last_error = Some(summary);
@@ -1254,8 +1486,8 @@ impl KernelManager {
             "tests" | "tests.run" => self.run_judge_command(app, rule, true),
             "git_clean" | "git.clean" => self.run_judge_git_clean(app),
             "no_error" | "last_error" => {
-                if context.last_error.is_some() {
-                    JudgeRuleOutcome::fail("last_error is set")
+                if !context.stderr.is_empty() {
+                    JudgeRuleOutcome::fail("last_error is set".to_string())
                 } else {
                     JudgeRuleOutcome::pass()
                 }
@@ -1272,7 +1504,7 @@ impl KernelManager {
     ) -> JudgeRuleOutcome {
         let command = match rule.command.as_ref() {
             Some(items) if !items.is_empty() => items.clone(),
-            _ => return JudgeRuleOutcome::fail("command is required"),
+            _ => return JudgeRuleOutcome::fail("command is required".to_string()),
         };
         let program = command[0].clone();
         let args = command[1..].to_vec();
@@ -1352,7 +1584,7 @@ impl KernelManager {
                         .unwrap_or_else(|| "unknown".to_string());
                     JudgeRuleOutcome::fail(format!("git status failed (exit_code: {})", code))
                 } else if dirty {
-                    JudgeRuleOutcome::fail("git status is not clean")
+                    JudgeRuleOutcome::fail("git status is not clean".to_string())
                 } else {
                     JudgeRuleOutcome::pass()
                 };
@@ -1477,15 +1709,21 @@ impl KernelManager {
         let user_prompt = build_user_prompt(state);
         let events = self.events.clone();
         let app_handle = app.clone();
-        let raw = request_completion_stream(&profile, &system_prompt, &user_prompt, |chunk| {
-            if !chunk.trim().is_empty() {
-                events.emit(
-                    &app_handle,
-                    "AgentMessageChunk",
-                    &serde_json::json!({ "content": chunk }),
-                );
-            }
-        })
+        let raw = request_completion_stream(
+            &profile,
+            &system_prompt,
+            &user_prompt,
+            LlmResponseFormat::ActionJson,
+            |chunk| {
+                if !chunk.trim().is_empty() {
+                    events.emit(
+                        &app_handle,
+                        "AgentMessageChunk",
+                        &serde_json::json!({ "content": chunk }),
+                    );
+                }
+            },
+        )
         .await?;
         events.emit(&app_handle, "AgentMessageDone", &serde_json::json!({}));
         let goal_hint = state
@@ -1970,6 +2208,18 @@ fn build_system_prompt(profile: &LlmProfile, allowed: &Option<HashSet<String>>) 
     prompt
 }
 
+fn build_chat_system_prompt(profile: &LlmProfile) -> String {
+    let mut prompt = String::new();
+    let base = profile.prompt.trim();
+    if !base.is_empty() {
+        prompt.push_str(base);
+        prompt.push_str("\n\n");
+    }
+    prompt.push_str("Chat mode: respond in plain text.\n");
+    prompt.push_str("Do not return JSON or tool actions unless explicitly asked.\n");
+    prompt
+}
+
 fn build_plan_system_prompt(profile: &LlmProfile) -> String {
     let mut prompt = String::new();
     let base = profile.prompt.trim();
@@ -1979,6 +2229,7 @@ fn build_plan_system_prompt(profile: &LlmProfile) -> String {
     }
     prompt.push_str("You generate concise execution plans for a coding agent.\n");
     prompt.push_str("Return JSON only. Do not wrap in markdown.\n");
+    prompt.push_str("Format: {\"goal\":\"...\",\"steps\":[\"step 1\",\"step 2\"]}.\n");
     prompt.push_str("Provide 4-8 concrete steps.\n");
     prompt
 }
@@ -2066,6 +2317,21 @@ fn build_user_prompt(state: &RunState) -> String {
             trim_to(&msg.content, 1200)
         ));
     }
+    prompt
+}
+
+fn build_chat_user_prompt(state: &RunState) -> String {
+    let mut prompt = String::new();
+    prompt.push_str("Conversation:\n");
+    let start = state.messages.len().saturating_sub(8);
+    for msg in state.messages.iter().skip(start) {
+        prompt.push_str(&format!(
+            "- {}: {}\n",
+            msg.role,
+            trim_to(&msg.content, 1200)
+        ));
+    }
+    prompt.push_str("Respond to the last user message.\n");
     prompt
 }
 

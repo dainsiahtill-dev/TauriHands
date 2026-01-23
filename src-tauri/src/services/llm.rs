@@ -36,6 +36,13 @@ pub struct LlmProfile {
     pub tool_toggles: Vec<LlmToolToggle>,
 }
 
+#[derive(Clone, Copy, PartialEq)]
+pub enum LlmResponseFormat {
+    Text,
+    ActionJson,
+    PlanJson,
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LlmToolToggle {
@@ -49,6 +56,21 @@ pub struct LlmProviderConfig {
     pub api_key: String,
     pub base_url: String,
     pub model: String,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LlmModelFetchRequest {
+    pub provider: String,
+    pub api_key: String,
+    pub base_url: String,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LlmModelFetchResponse {
+    pub models: Vec<String>,
+    pub source_url: String,
 }
 
 #[derive(Clone, Serialize, Deserialize, Default)]
@@ -144,6 +166,7 @@ pub async fn request_completion(
     profile: &LlmProfile,
     system_prompt: &str,
     user_prompt: &str,
+    response_format: LlmResponseFormat,
 ) -> Result<String, String> {
     let provider = profile.provider.to_lowercase();
     let base_url = resolve_base_url(profile);
@@ -159,14 +182,36 @@ pub async fn request_completion(
     if provider == "anthropic" {
         return request_anthropic(&client, profile, &base_url, system_prompt, user_prompt).await;
     }
-
-    request_openai_compatible(&client, profile, &base_url, system_prompt, user_prompt).await
+    if provider == "openai" {
+        let mode = resolve_openai_request_mode(&base_url);
+        if mode == OpenAiRequestMode::Responses {
+            return request_openai_responses(
+                &client,
+                profile,
+                &base_url,
+                system_prompt,
+                user_prompt,
+                response_format,
+            )
+            .await;
+        }
+    }
+    request_openai_compatible(
+        &client,
+        profile,
+        &base_url,
+        system_prompt,
+        user_prompt,
+        response_format,
+    )
+    .await
 }
 
 pub async fn request_completion_stream<F>(
     profile: &LlmProfile,
     system_prompt: &str,
     user_prompt: &str,
+    response_format: LlmResponseFormat,
     mut on_chunk: F,
 ) -> Result<String, String>
 where
@@ -189,6 +234,57 @@ where
         return Ok(content);
     }
 
+    if provider == "openai" {
+        let mode = resolve_openai_request_mode(&base_url);
+        if profile.stream_responses {
+            if mode == OpenAiRequestMode::Responses {
+                return request_openai_responses_stream(
+                    &client,
+                    profile,
+                    &base_url,
+                    system_prompt,
+                    user_prompt,
+                    response_format,
+                    &mut on_chunk,
+                )
+                .await;
+            }
+            return request_openai_compatible_stream(
+                &client,
+                profile,
+                &base_url,
+                system_prompt,
+                user_prompt,
+                response_format,
+                &mut on_chunk,
+            )
+            .await;
+        }
+        let content = if mode == OpenAiRequestMode::Responses {
+            request_openai_responses(
+                &client,
+                profile,
+                &base_url,
+                system_prompt,
+                user_prompt,
+                response_format,
+            )
+            .await?
+        } else {
+            request_openai_compatible(
+                &client,
+                profile,
+                &base_url,
+                system_prompt,
+                user_prompt,
+                response_format,
+            )
+            .await?
+        };
+        on_chunk(content.clone());
+        return Ok(content);
+    }
+
     if profile.stream_responses {
         return request_openai_compatible_stream(
             &client,
@@ -196,25 +292,48 @@ where
             &base_url,
             system_prompt,
             user_prompt,
+            response_format,
             &mut on_chunk,
         )
         .await;
     }
 
-    let content = request_openai_compatible(&client, profile, &base_url, system_prompt, user_prompt).await?;
+    let content = request_openai_compatible(
+        &client,
+        profile,
+        &base_url,
+        system_prompt,
+        user_prompt,
+        response_format,
+    )
+    .await?;
     on_chunk(content.clone());
     Ok(content)
 }
 
+pub async fn fetch_models(request: LlmModelFetchRequest) -> Result<LlmModelFetchResponse, String> {
+    let provider = request.provider.to_lowercase();
+    let client = build_http_client()?;
+    match provider.as_str() {
+        "openai" => fetch_openai_models(&client, &request).await,
+        "local" | "ollama" => fetch_local_models(&client, &provider, &request.base_url).await,
+        _ => Err("Model listing is not supported for this provider.".to_string()),
+    }
+}
+
 fn resolve_base_url(profile: &LlmProfile) -> String {
+    let provider = profile.provider.to_lowercase();
     if !profile.base_url.trim().is_empty() {
         let base = profile.base_url.trim().trim_end_matches('/').to_string();
-        if matches!(profile.provider.to_lowercase().as_str(), "local" | "ollama") {
+        if matches!(provider.as_str(), "local" | "ollama") {
             return normalize_local_base_url(&base);
+        }
+        if provider == "openai" {
+            return normalize_openai_base_url(&base);
         }
         return base;
     }
-    match profile.provider.to_lowercase().as_str() {
+    match provider.as_str() {
         "openai" => "https://api.openai.com/v1".to_string(),
         "anthropic" => "https://api.anthropic.com/v1".to_string(),
         "local" => "http://localhost:11434/v1".to_string(),
@@ -232,11 +351,644 @@ fn normalize_local_base_url(base: &str) -> String {
     format!("{}/v1", trimmed)
 }
 
+fn normalize_openai_base_url(base: &str) -> String {
+    let trimmed = base.trim_end_matches('/');
+    let lower = trimmed.to_lowercase();
+    if lower.contains("/chat/completions")
+        || lower.contains("/responses")
+        || lower.ends_with("/v1")
+        || lower.contains("/v1/")
+    {
+        return trimmed.to_string();
+    }
+    format!("{}/v1", trimmed)
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum OpenAiRequestMode {
+    Responses,
+    ChatCompletions,
+}
+
+fn resolve_openai_request_mode(base_url: &str) -> OpenAiRequestMode {
+    let lower = base_url.to_lowercase();
+    if lower.contains("/chat/completions") {
+        OpenAiRequestMode::ChatCompletions
+    } else {
+        OpenAiRequestMode::Responses
+    }
+}
+
 fn openai_chat_url(base_url: &str) -> String {
     if base_url.contains("/chat/completions") {
         base_url.to_string()
     } else {
         format!("{}/chat/completions", base_url.trim_end_matches('/'))
+    }
+}
+
+fn openai_responses_url(base_url: &str) -> String {
+    if base_url.contains("/responses") {
+        base_url.to_string()
+    } else {
+        format!("{}/responses", base_url.trim_end_matches('/'))
+    }
+}
+
+fn openai_json_object_response_format() -> serde_json::Value {
+    serde_json::json!({ "type": "json_object" })
+}
+
+fn openai_action_schema_response_format() -> serde_json::Value {
+    serde_json::json!({
+        "type": "json_schema",
+        "json_schema": {
+            "name": "kernel_action_response",
+            "strict": true,
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "message": { "type": "string" },
+                    "actions": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "type": { "type": "string" },
+                                "id": { "type": "string" },
+                                "cmd": { "type": "string" },
+                                "program": { "type": "string" },
+                                "args": { "type": "array", "items": { "type": "string" } },
+                                "cwd": { "type": "string" },
+                                "path": { "type": "string" },
+                                "content": { "type": "string" },
+                                "pattern": { "type": "string" },
+                                "paths": { "type": "array", "items": { "type": "string" } },
+                                "plan": { "type": "object" },
+                                "tasks": { "type": "object" },
+                                "question": { "type": "string" }
+                            },
+                            "required": ["type"],
+                            "additionalProperties": true
+                        }
+                    }
+                },
+                "required": ["actions"],
+                "additionalProperties": true
+            }
+        }
+    })
+}
+
+fn openai_plan_schema_response_format() -> serde_json::Value {
+    serde_json::json!({
+        "type": "json_schema",
+        "json_schema": {
+            "name": "kernel_plan_response",
+            "strict": true,
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "goal": { "type": "string" },
+                    "steps": {
+                        "type": "array",
+                        "items": {
+                            "anyOf": [
+                                { "type": "string" },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "title": { "type": "string" },
+                                        "status": { "type": "string" }
+                                    },
+                                    "required": ["title"],
+                                    "additionalProperties": true
+                                }
+                            ]
+                        },
+                        "minItems": 1
+                    }
+                },
+                "required": ["goal", "steps"],
+                "additionalProperties": true
+            }
+        }
+    })
+}
+
+fn openai_responses_response_format(format: LlmResponseFormat) -> Option<serde_json::Value> {
+    match format {
+        LlmResponseFormat::ActionJson => Some(openai_action_schema_response_format()),
+        LlmResponseFormat::PlanJson => Some(openai_plan_schema_response_format()),
+        LlmResponseFormat::Text => None,
+    }
+}
+
+fn openai_chat_response_format(format: LlmResponseFormat) -> Option<serde_json::Value> {
+    match format {
+        LlmResponseFormat::Text => None,
+        _ => Some(openai_json_object_response_format()),
+    }
+}
+
+fn openai_models_url(base_url: &str) -> String {
+    let trimmed = base_url.trim_end_matches('/');
+    let lower = trimmed.to_lowercase();
+    if lower.ends_with("/models") {
+        return trimmed.to_string();
+    }
+    let base = strip_openai_endpoint(trimmed);
+    let base_trimmed = base.trim_end_matches('/');
+    let lower_base = base_trimmed.to_lowercase();
+    if lower_base.ends_with("/v1") || lower_base.contains("/v1/") {
+        format!("{}/models", base_trimmed)
+    } else {
+        format!("{}/v1/models", base_trimmed)
+    }
+}
+
+fn strip_openai_endpoint(base_url: &str) -> String {
+    let trimmed = base_url.trim_end_matches('/');
+    let lower = trimmed.to_lowercase();
+    for marker in ["/responses", "/chat/completions", "/completions"] {
+        if let Some(idx) = lower.find(marker) {
+            return trimmed[..idx].to_string();
+        }
+    }
+    trimmed.to_string()
+}
+
+fn strip_trailing_v1(base_url: &str) -> String {
+    let trimmed = base_url.trim_end_matches('/');
+    let lower = trimmed.to_lowercase();
+    if lower.ends_with("/v1") && trimmed.len() >= 3 {
+        return trimmed[..trimmed.len() - 3].to_string();
+    }
+    trimmed.to_string()
+}
+
+fn parse_ollama_tags(value: &serde_json::Value) -> Vec<String> {
+    let models = match value.get("models").and_then(|entry| entry.as_array()) {
+        Some(models) => models,
+        None => return Vec::new(),
+    };
+    models
+        .iter()
+        .filter_map(|item| item.get("name").and_then(|name| name.as_str()))
+        .map(|name| name.to_string())
+        .collect()
+}
+
+fn parse_openai_models(value: &serde_json::Value) -> Vec<String> {
+    let models = match value.get("data").and_then(|entry| entry.as_array()) {
+        Some(models) => models,
+        None => return Vec::new(),
+    };
+    models
+        .iter()
+        .filter_map(|item| item.get("id").and_then(|name| name.as_str()))
+        .map(|name| name.to_string())
+        .collect()
+}
+
+fn normalize_model_list(models: Vec<String>) -> Vec<String> {
+    let mut unique = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for model in models {
+        if seen.insert(model.clone()) {
+            unique.push(model);
+        }
+    }
+    unique.sort();
+    unique
+}
+
+fn coerce_json_field(value: &serde_json::Value) -> Option<String> {
+    if let Some(text) = value.as_str() {
+        let trimmed = text.trim();
+        if !trimmed.is_empty() {
+            return Some(trimmed.to_string());
+        }
+        return None;
+    }
+    if value.is_null() {
+        return None;
+    }
+    let rendered = value.to_string();
+    let trimmed = rendered.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
+fn extract_openai_response_text(value: &serde_json::Value) -> Option<String> {
+    if let Some(text) = value.get("output_text").and_then(coerce_json_field) {
+        return Some(text);
+    }
+    if let Some(text) = value.get("output_json").and_then(coerce_json_field) {
+        return Some(text);
+    }
+    if let Some(text) = value.get("text").and_then(coerce_json_field) {
+        return Some(text);
+    }
+    let output = value.get("output")?.as_array()?;
+    let mut parts = Vec::new();
+    for item in output {
+        if let Some(text) = item.get("output_text").and_then(coerce_json_field) {
+            parts.push(text);
+            continue;
+        }
+        if let Some(text) = item.get("output_json").and_then(coerce_json_field) {
+            parts.push(text);
+            continue;
+        }
+        if let Some(text) = item.get("text").and_then(coerce_json_field) {
+            parts.push(text);
+            continue;
+        }
+        if let Some(text) = item.get("json").and_then(coerce_json_field) {
+            parts.push(text);
+            continue;
+        }
+        if let Some(content) = item.get("content") {
+            match content {
+                serde_json::Value::String(text) => {
+                    if !text.is_empty() {
+                        parts.push(text.to_string());
+                    }
+                }
+                serde_json::Value::Array(entries) => {
+                    for entry in entries {
+                        if let Some(text) = entry.get("output_text").and_then(coerce_json_field) {
+                            parts.push(text);
+                            continue;
+                        }
+                        if let Some(text) = entry.get("output_json").and_then(coerce_json_field) {
+                            parts.push(text);
+                            continue;
+                        }
+                        if let Some(text) = entry.get("text").and_then(coerce_json_field) {
+                            parts.push(text);
+                            continue;
+                        }
+                        if let Some(text) = entry.get("json").and_then(coerce_json_field) {
+                            parts.push(text);
+                        }
+                    }
+                }
+                serde_json::Value::Object(_) => {
+                    if let Some(text) = content.get("output_text").and_then(coerce_json_field) {
+                        parts.push(text);
+                    } else if let Some(text) =
+                        content.get("output_json").and_then(coerce_json_field)
+                    {
+                        parts.push(text);
+                    } else if let Some(text) = content.get("text").and_then(coerce_json_field) {
+                        parts.push(text);
+                    } else if let Some(text) = content.get("json").and_then(coerce_json_field) {
+                        parts.push(text);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    if parts.is_empty() {
+        None
+    } else {
+        Some(parts.join(""))
+    }
+}
+
+fn extract_openai_response_stream_text(
+    value: &serde_json::Value,
+    allow_full: bool,
+) -> Option<String> {
+    if let Some(delta) = value.get("delta").and_then(coerce_json_field) {
+        if !delta.is_empty() {
+            return Some(delta);
+        }
+    }
+    if let Some(text) = value.get("output_text").and_then(coerce_json_field) {
+        if !text.is_empty() {
+            return Some(text);
+        }
+    }
+    if let Some(text) = value.get("output_json").and_then(coerce_json_field) {
+        if !text.is_empty() {
+            return Some(text);
+        }
+    }
+    if let Some(text) = value.get("text").and_then(coerce_json_field) {
+        if !text.is_empty() {
+            return Some(text);
+        }
+    }
+    if let Some(text) = value.get("json").and_then(coerce_json_field) {
+        if !text.is_empty() {
+            return Some(text);
+        }
+    }
+    if allow_full {
+        if let Some(response) = value.get("response") {
+            return extract_openai_response_text(response);
+        }
+    }
+    None
+}
+
+async fn request_openai_responses_stream<F>(
+    client: &Client,
+    profile: &LlmProfile,
+    base_url: &str,
+    system_prompt: &str,
+    user_prompt: &str,
+    response_format: LlmResponseFormat,
+    on_chunk: &mut F,
+) -> Result<String, String>
+where
+    F: FnMut(String),
+{
+    let url = openai_responses_url(base_url);
+    let mut payload = serde_json::json!({
+        "model": profile.model,
+        "input": [
+            { "role": "system", "content": system_prompt },
+            { "role": "user", "content": user_prompt }
+        ],
+        "temperature": profile.temperature,
+        "top_p": profile.top_p,
+        "max_output_tokens": profile.max_tokens,
+        "stream": true
+    });
+    if let Some(format) = openai_responses_response_format(response_format) {
+        payload["response_format"] = format;
+    }
+
+    let mut request = client.post(&url).json(&payload);
+    if !profile.api_key.trim().is_empty() {
+        request = request.bearer_auth(profile.api_key.trim());
+    }
+
+    let response = request
+        .send()
+        .await
+        .map_err(|e| format_reqwest_error("openai.responses.stream", &url, &e))?;
+    let status = response.status();
+    if !status.is_success() {
+        let body = response.text().await.unwrap_or_default();
+        if let Ok(value) = serde_json::from_str::<serde_json::Value>(&body) {
+            let message = value
+                .get("error")
+                .and_then(|err| err.get("message"))
+                .and_then(|msg| msg.as_str())
+                .unwrap_or("LLM request failed");
+            return Err(format!("{} (HTTP {})", message, status.as_u16()));
+        }
+        return Err(format!("LLM request failed (HTTP {})", status.as_u16()));
+    }
+
+    let mut full = String::new();
+    let mut buffer = String::new();
+    let mut stream = response.bytes_stream();
+    'outer: while let Some(item) = stream.next().await {
+        let chunk = item.map_err(|e| e.to_string())?;
+        let text = String::from_utf8_lossy(&chunk);
+        buffer.push_str(&text);
+        while let Some(pos) = buffer.find('\n') {
+            let mut line = buffer[..pos].to_string();
+            buffer = buffer[pos + 1..].to_string();
+            line = line.trim_end_matches('\r').to_string();
+            if line.is_empty() || !line.starts_with("data:") {
+                continue;
+            }
+            let data = line.trim_start_matches("data:").trim();
+            if data == "[DONE]" {
+                break 'outer;
+            }
+            if data.is_empty() {
+                continue;
+            }
+            let value: serde_json::Value = match serde_json::from_str(data) {
+                Ok(value) => value,
+                Err(_) => continue,
+            };
+            if let Some(text) = extract_openai_response_stream_text(&value, full.trim().is_empty())
+            {
+                if !text.is_empty() {
+                    full.push_str(&text);
+                    on_chunk(text);
+                }
+            }
+        }
+    }
+
+    if !buffer.is_empty() {
+        for line in buffer.lines() {
+            let line = line.trim_end_matches('\r');
+            if !line.starts_with("data:") {
+                continue;
+            }
+            let data = line.trim_start_matches("data:").trim();
+            if data == "[DONE]" || data.is_empty() {
+                continue;
+            }
+            if let Ok(value) = serde_json::from_str::<serde_json::Value>(data) {
+                if let Some(text) =
+                    extract_openai_response_stream_text(&value, full.trim().is_empty())
+                {
+                    if !text.is_empty() {
+                        full.push_str(&text);
+                        on_chunk(text);
+                    }
+                }
+            }
+        }
+    }
+
+    if full.trim().is_empty() {
+        return Err("LLM response is empty".to_string());
+    }
+    Ok(full)
+}
+
+async fn request_openai_responses(
+    client: &Client,
+    profile: &LlmProfile,
+    base_url: &str,
+    system_prompt: &str,
+    user_prompt: &str,
+    response_format: LlmResponseFormat,
+) -> Result<String, String> {
+    let url = openai_responses_url(base_url);
+    let mut payload = serde_json::json!({
+        "model": profile.model,
+        "input": [
+            { "role": "system", "content": system_prompt },
+            { "role": "user", "content": user_prompt }
+        ],
+        "temperature": profile.temperature,
+        "top_p": profile.top_p,
+        "max_output_tokens": profile.max_tokens
+    });
+    if let Some(format) = openai_responses_response_format(response_format) {
+        payload["response_format"] = format;
+    }
+
+    let mut request = client.post(&url).json(&payload);
+    if !profile.api_key.trim().is_empty() {
+        request = request.bearer_auth(profile.api_key.trim());
+    }
+
+    let response = request
+        .send()
+        .await
+        .map_err(|e| format_reqwest_error("openai.responses", &url, &e))?;
+    let status = response.status();
+    let body = response
+        .text()
+        .await
+        .map_err(|e| format_reqwest_error("openai.responses.read", &url, &e))?;
+    let value: serde_json::Value = serde_json::from_str(&body).map_err(|e| {
+        format!(
+            "Invalid JSON response (HTTP {}). error=\"{}\" body_preview=\"{}\"",
+            status.as_u16(),
+            e,
+            truncate_for_error(&body, 800)
+        )
+    })?;
+    if !status.is_success() {
+        let message = value
+            .get("error")
+            .and_then(|err| err.get("message"))
+            .and_then(|msg| msg.as_str())
+            .unwrap_or("LLM request failed");
+        return Err(format!("{} (HTTP {})", message, status.as_u16()));
+    }
+    let content = extract_openai_response_text(&value)
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+    if content.is_empty() {
+        return Err("LLM response is empty".to_string());
+    }
+    Ok(content)
+}
+
+async fn fetch_openai_models(
+    client: &Client,
+    request: &LlmModelFetchRequest,
+) -> Result<LlmModelFetchResponse, String> {
+    if request.api_key.trim().is_empty() {
+        return Err("API key is required.".to_string());
+    }
+    let base = if request.base_url.trim().is_empty() {
+        "https://api.openai.com/v1".to_string()
+    } else {
+        normalize_openai_base_url(request.base_url.trim())
+    };
+    let url = openai_models_url(&base);
+    let response = client
+        .get(&url)
+        .bearer_auth(request.api_key.trim())
+        .send()
+        .await
+        .map_err(|e| format_reqwest_error("openai.models", &url, &e))?;
+    let status = response.status();
+    let body = response
+        .text()
+        .await
+        .map_err(|e| format_reqwest_error("openai.models.read", &url, &e))?;
+    let value: serde_json::Value = serde_json::from_str(&body).map_err(|e| {
+        format!(
+            "Invalid JSON response (HTTP {}). error=\"{}\" body_preview=\"{}\"",
+            status.as_u16(),
+            e,
+            truncate_for_error(&body, 800)
+        )
+    })?;
+    if !status.is_success() {
+        let message = value
+            .get("error")
+            .and_then(|err| err.get("message"))
+            .and_then(|msg| msg.as_str())
+            .unwrap_or("LLM request failed");
+        return Err(format!("{} (HTTP {})", message, status.as_u16()));
+    }
+    let models = normalize_model_list(parse_openai_models(&value));
+    if models.is_empty() {
+        return Err("No models found.".to_string());
+    }
+    Ok(LlmModelFetchResponse {
+        models,
+        source_url: url,
+    })
+}
+
+async fn fetch_local_models(
+    client: &Client,
+    provider: &str,
+    base_url: &str,
+) -> Result<LlmModelFetchResponse, String> {
+    let mut base = base_url.trim().trim_end_matches('/').to_string();
+    if base.is_empty() {
+        if provider == "local" {
+            base = "http://localhost:11434".to_string();
+        } else {
+            return Err("Base URL is required for Ollama.".to_string());
+        }
+    }
+    let root = strip_trailing_v1(&base);
+    let endpoints: Vec<(String, fn(&serde_json::Value) -> Vec<String>)> = vec![
+        (format!("{}/api/tags", root), parse_ollama_tags),
+        (format!("{}/v1/models", root), parse_openai_models),
+    ];
+
+    let mut last_error = String::new();
+    for (url, parser) in endpoints {
+        let response = match client.get(&url).send().await {
+            Ok(response) => response,
+            Err(error) => {
+                last_error = format_reqwest_error("models.fetch", &url, &error);
+                continue;
+            }
+        };
+        let status = response.status();
+        if !status.is_success() {
+            let reason = status.canonical_reason().unwrap_or("Request failed");
+            last_error = format!("HTTP {} {}", status.as_u16(), reason);
+            continue;
+        }
+        let body = match response.text().await {
+            Ok(body) => body,
+            Err(error) => {
+                last_error = format_reqwest_error("models.read", &url, &error);
+                continue;
+            }
+        };
+        let value: serde_json::Value = match serde_json::from_str(&body) {
+            Ok(value) => value,
+            Err(error) => {
+                last_error = format!("Invalid JSON: {}", error);
+                continue;
+            }
+        };
+        let models = normalize_model_list(parser(&value));
+        if !models.is_empty() {
+            return Ok(LlmModelFetchResponse {
+                models,
+                source_url: url,
+            });
+        }
+        last_error = "No models found.".to_string();
+    }
+
+    if last_error.is_empty() {
+        Err("Unable to load models.".to_string())
+    } else {
+        Err(last_error)
     }
 }
 
@@ -246,6 +998,7 @@ async fn request_openai_compatible_stream<F>(
     base_url: &str,
     system_prompt: &str,
     user_prompt: &str,
+    response_format: LlmResponseFormat,
     on_chunk: &mut F,
 ) -> Result<String, String>
 where
@@ -266,6 +1019,11 @@ where
         payload["max_completion_tokens"] = serde_json::json!(profile.max_tokens);
     } else {
         payload["max_tokens"] = serde_json::json!(profile.max_tokens);
+    }
+    if profile.provider.to_lowercase() == "openai" {
+        if let Some(format) = openai_chat_response_format(response_format) {
+            payload["response_format"] = format;
+        }
     }
 
     let mut request = client.post(&url).json(&payload);
@@ -377,6 +1135,7 @@ async fn request_openai_compatible(
     base_url: &str,
     system_prompt: &str,
     user_prompt: &str,
+    response_format: LlmResponseFormat,
 ) -> Result<String, String> {
     let url = openai_chat_url(base_url);
     let mut payload = serde_json::json!({
@@ -392,6 +1151,11 @@ async fn request_openai_compatible(
         payload["max_completion_tokens"] = serde_json::json!(profile.max_tokens);
     } else {
         payload["max_tokens"] = serde_json::json!(profile.max_tokens);
+    }
+    if profile.provider.to_lowercase() == "openai" {
+        if let Some(format) = openai_chat_response_format(response_format) {
+            payload["response_format"] = format;
+        }
     }
 
     let mut request = client.post(&url).json(&payload);

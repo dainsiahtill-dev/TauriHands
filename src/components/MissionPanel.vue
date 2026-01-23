@@ -130,6 +130,10 @@ watch(
       <p class="eyebrow">Task config</p>
       <div class="form-grid">
         <label>
+          Task ID
+          <input v-model="task.taskId" type="text" class="field" placeholder="task-001" />
+        </label>
+        <label>
           Goal
           <input v-model="task.goal" type="text" class="field" placeholder="Describe the mission goal" />
         </label>
@@ -210,7 +214,7 @@ watch(
       <ul v-else class="task-list">
         <li v-for="task in run?.tasks?.items ?? []" :key="task.id">
           <span class="task-title">{{ task.title }}</span>
-          <span class="task-status">{{ task.status }}</span>
+          <span class="task-status" :data-status="task.status">{{ task.status }}</span>
         </li>
       </ul>
     </div>
@@ -238,7 +242,7 @@ watch(
 }
 
 .workspace-block {
-  border-radius: 12px;
+  border-radius: 0;
   overflow: hidden;
   border: 1px solid var(--line);
   box-shadow: inset 0 0 16px rgba(var(--accent-rgb), 0.08);
@@ -254,16 +258,29 @@ watch(
   gap: 6px;
   font-size: 0.75rem;
   color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-family: var(--font-display);
 }
 
 .field {
   padding: 8px 10px;
-  border-radius: 10px;
-  border: 1px solid rgba(var(--line-rgb), 0.36);
+  border-radius: 0;
+  border: 1px solid rgba(var(--line-rgb), 0.45);
   background: rgba(6, 12, 22, 0.8);
   box-shadow: inset 0 0 12px rgba(var(--accent-rgb), 0.08);
   color: var(--text-primary);
   font-size: 0.85rem;
+  clip-path: polygon(
+    var(--hud-cut-xs) 0,
+    calc(100% - var(--hud-cut-xs)) 0,
+    100% var(--hud-cut-xs),
+    100% calc(100% - var(--hud-cut-xs)),
+    calc(100% - var(--hud-cut-xs)) 100%,
+    var(--hud-cut-xs) 100%,
+    0 calc(100% - var(--hud-cut-xs)),
+    0 var(--hud-cut-xs)
+  );
 }
 
 .field:focus {
@@ -281,13 +298,45 @@ watch(
 }
 
 .status {
-  font-size: 0.8rem;
-  color: var(--accent-2);
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  padding: 4px 8px;
+  color: var(--status-success);
+  border: 1px solid rgba(var(--status-success-rgb), 0.5);
+  background: rgba(var(--status-success-rgb), 0.12);
+  font-family: var(--font-display);
+  clip-path: polygon(
+    var(--hud-cut-xs) 0,
+    calc(100% - var(--hud-cut-xs)) 0,
+    100% var(--hud-cut-xs),
+    100% calc(100% - var(--hud-cut-xs)),
+    calc(100% - var(--hud-cut-xs)) 100%,
+    var(--hud-cut-xs) 100%,
+    0 calc(100% - var(--hud-cut-xs)),
+    0 var(--hud-cut-xs)
+  );
 }
 
 .error {
-  font-size: 0.8rem;
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  padding: 4px 8px;
   color: var(--status-error);
+  border: 1px solid rgba(var(--status-error-rgb), 0.5);
+  background: rgba(var(--status-error-rgb), 0.12);
+  font-family: var(--font-display);
+  clip-path: polygon(
+    var(--hud-cut-xs) 0,
+    calc(100% - var(--hud-cut-xs)) 0,
+    100% var(--hud-cut-xs),
+    100% calc(100% - var(--hud-cut-xs)),
+    calc(100% - var(--hud-cut-xs)) 100%,
+    var(--hud-cut-xs) 100%,
+    0 calc(100% - var(--hud-cut-xs)),
+    0 var(--hud-cut-xs)
+  );
 }
 
 .task-list {
@@ -302,12 +351,35 @@ watch(
   display: flex;
   justify-content: space-between;
   gap: 12px;
-  padding: 8px 10px;
-  border-radius: 10px;
+  padding: 8px 12px;
+  border-radius: 0;
   border: 1px solid var(--line);
   background: rgba(8, 12, 20, 0.7);
   color: var(--text-secondary);
   font-size: 0.85rem;
+  position: relative;
+  box-shadow: 0 10px 18px rgba(0, 0, 0, 0.25);
+  clip-path: polygon(
+    var(--hud-cut-xs) 0,
+    calc(100% - var(--hud-cut-xs)) 0,
+    100% var(--hud-cut-xs),
+    100% calc(100% - var(--hud-cut-xs)),
+    calc(100% - var(--hud-cut-xs)) 100%,
+    var(--hud-cut-xs) 100%,
+    0 calc(100% - var(--hud-cut-xs)),
+    0 var(--hud-cut-xs)
+  );
+}
+
+.task-list li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  background: linear-gradient(180deg, rgba(var(--accent-rgb), 0.9), rgba(var(--status-info-rgb), 0.2));
+  opacity: 0.65;
 }
 
 .task-title {
@@ -316,8 +388,56 @@ watch(
 
 .task-status {
   text-transform: uppercase;
-  letter-spacing: 0.08em;
-  font-size: 0.65rem;
+  letter-spacing: 0.14em;
+  font-size: 0.6rem;
+  padding: 4px 8px;
+  border-radius: 0;
+  border: 1px solid rgba(var(--line-rgb), 0.35);
+  background: rgba(8, 12, 20, 0.75);
+  color: var(--text-secondary);
+  font-family: var(--font-display);
+  clip-path: polygon(
+    var(--hud-cut-xs) 0,
+    calc(100% - var(--hud-cut-xs)) 0,
+    100% var(--hud-cut-xs),
+    100% calc(100% - var(--hud-cut-xs)),
+    calc(100% - var(--hud-cut-xs)) 100%,
+    var(--hud-cut-xs) 100%,
+    0 calc(100% - var(--hud-cut-xs)),
+    0 var(--hud-cut-xs)
+  );
+}
+
+.task-status[data-status="pending"],
+.task-status[data-status="todo"] {
+  color: var(--text-tertiary);
+  border-color: rgba(var(--line-rgb), 0.2);
+  background: rgba(4, 8, 16, 0.7);
+}
+
+.task-status[data-status="running"] {
+  color: var(--accent);
+  border-color: rgba(var(--accent-rgb), 0.5);
+  background: rgba(var(--accent-rgb), 0.12);
+  box-shadow: 0 0 12px rgba(var(--accent-rgb), 0.2);
+}
+
+.task-status[data-status="done"] {
+  color: var(--status-success);
+  border-color: rgba(var(--status-success-rgb), 0.5);
+  background: rgba(var(--status-success-rgb), 0.12);
+}
+
+.task-status[data-status="skipped"] {
+  color: var(--text-tertiary);
+  border-color: rgba(var(--line-rgb), 0.25);
+  background: rgba(6, 10, 18, 0.7);
+}
+
+.task-status[data-status="error"] {
+  color: var(--status-error);
+  border-color: rgba(var(--status-error-rgb), 0.55);
+  background: rgba(var(--status-error-rgb), 0.12);
 }
 
 .empty {

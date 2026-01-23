@@ -5,6 +5,10 @@ description = "A Tauri App"
 authors = ["you"]
 edition = "2021"
 
+[features]
+default = []
+cli = ["dep:clap", "dep:crossterm", "dep:ratatui", "dep:tokio-tungstenite", "dep:webbrowser", "dep:dirs", "dep:toml", "dep:env_logger"]
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [lib]
@@ -28,3 +32,33 @@ portable-pty = "0.8"
 uuid = { version = "1", features = ["v4"] }
 reqwest = { version = "0.12", features = ["json", "stream", "rustls-tls", "native-tls"] }
 futures-util = "0.3"
+tokio = { version = "1.0", features = ["full"] }
+tokio-util = "0.7"
+async-trait = "0.1"
+clap = { version = "4.0", features = ["derive"], optional = true }
+crossterm = { version = "0.27", optional = true }
+ratatui = { version = "0.26", optional = true }
+anyhow = "1.0"
+thiserror = "1.0"
+toml = { version = "0.8", optional = true }
+dirs = { version = "5.0", optional = true }
+tokio-tungstenite = { version = "0.21", optional = true }
+webbrowser = { version = "0.8", optional = true }
+env_logger = { version = "0.10", optional = true }
+log = { version = "0.4" }
+chrono = { version = "0.4", features = ["serde"] }
+walkdir = "2.4"
+
+[dev-dependencies]
+
+[profile.release]
+# Optimize for performance in release builds
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[profile.dev]
+# Enable debug info in development builds
+debug = true
+overflow-checks = true

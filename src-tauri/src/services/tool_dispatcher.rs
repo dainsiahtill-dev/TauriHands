@@ -9,7 +9,7 @@ pub struct ToolPolicy {
     pub path_policy: String,
 }
 
-pub trait ToolDispatcher {
+pub trait ToolDispatcher: Send + Sync {
     fn dispatch(
         &self,
         action: &Action,

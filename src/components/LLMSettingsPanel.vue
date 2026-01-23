@@ -1,6 +1,12 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
+import ProviderConfig from "./llm/ProviderConfig.vue";
+import ConnectionTest from "./llm/ConnectionTest.vue";
+import SystemPrompt from "./llm/SystemPrompt.vue";
+import ContextStrategy from "./llm/ContextStrategy.vue";
+import ToolAllowlist from "./llm/ToolAllowlist.vue";
+import AuditSettings from "./llm/AuditSettings.vue";
 
 type ProviderId = "openai" | "anthropic" | "local" | "ollama" | "azure";
 
@@ -8,7 +14,8 @@ const provider = ref<ProviderId>("openai");
 const profileName = ref("Default");
 const apiKey = ref("");
 const baseUrl = ref("");
-const model = ref("gpt-4o");
+const DEFAULT_OPENAI_MODEL = "gpt-4o";
+const model = ref(DEFAULT_OPENAI_MODEL);
 const prompt = ref(
   "You are a precise coding agent. Use tools, summarize changes, and avoid unsafe commands.",
 );
@@ -31,22 +38,6 @@ const DEFAULT_RUNTIME = {
   concurrency: 2,
 };
 
-const providerOptions = [
-  { id: "openai", label: "OpenAI" },
-  { id: "anthropic", label: "Anthropic" },
-  { id: "local", label: "Local (Ollama/LM Studio)" },
-  { id: "ollama", label: "Ollama (LAN)" },
-  { id: "azure", label: "Azure OpenAI" },
-];
-
-const modelsByProvider: Record<ProviderId, string[]> = {
-  openai: ["gpt-5.1", "gpt-5.2", "gpt-5.2-codex"],
-  anthropic: ["claude-3.5-sonnet", "claude-3.5-haiku", "claude-3-opus"],
-  local: ["llama3.1:70b", "qwen2.5:32b", "mistral-large"],
-  ollama: ["llama3.1:70b", "qwen2.5:32b", "mistral-large"],
-  azure: ["gpt-4o", "gpt-4.1", "gpt-35-turbo"],
-};
-
 type ProviderConfig = {
   apiKey: string;
   baseUrl: string;
@@ -55,11 +46,11 @@ type ProviderConfig = {
 
 function buildProviderDefaults(): Record<ProviderId, ProviderConfig> {
   return {
-    openai: { apiKey: "", baseUrl: "", model: modelsByProvider.openai[0] ?? "" },
-    anthropic: { apiKey: "", baseUrl: "", model: modelsByProvider.anthropic[0] ?? "" },
-    local: { apiKey: "", baseUrl: "", model: modelsByProvider.local[0] ?? "" },
-    ollama: { apiKey: "", baseUrl: "", model: modelsByProvider.ollama[0] ?? "" },
-    azure: { apiKey: "", baseUrl: "", model: modelsByProvider.azure[0] ?? "" },
+    openai: { apiKey: "", baseUrl: "", model: DEFAULT_OPENAI_MODEL },
+    anthropic: { apiKey: "", baseUrl: "", model: "claude-3.5-sonnet" },
+    local: { apiKey: "", baseUrl: "", model: "llama3.1:70b" },
+    ollama: { apiKey: "", baseUrl: "", model: "llama3.1:70b" },
+    azure: { apiKey: "", baseUrl: "", model: "gpt-4o" },
   };
 }
 
@@ -92,91 +83,36 @@ function applyProviderConfig(id: ProviderId) {
 }
 
 const ollamaModels = ref<string[]>([]);
+const openAiModels = ref<string[]>([]);
+const openAiFetchStatus = ref<"idle" | "loading" | "ok" | "error">("idle");
+const openAiFetchMessage = ref("");
+const openAiFetchAt = ref<number | null>(null);
+
 const modelFetchStatus = ref<"idle" | "loading" | "ok" | "error">("idle");
 const modelFetchMessage = ref("");
 const modelFetchAt = ref<number | null>(null);
-
-const modelFetchLabel = computed(() => {
-  if (modelFetchStatus.value === "loading") return "Loading";
-  if (modelFetchStatus.value === "ok") return "Models loaded";
-  if (modelFetchStatus.value === "error") return "Load failed";
-  return "Idle";
-});
 
 const modelTestStatus = ref<"idle" | "running" | "ok" | "error">("idle");
 const modelTestMessage = ref("");
 const modelTestDetail = ref("");
 
-const modelTestLabel = computed(() => {
-  if (modelTestStatus.value === "running") return "Testing";
-  if (modelTestStatus.value === "ok") return "Model ready";
-  if (modelTestStatus.value === "error") return "Model error";
-  return "Idle";
-});
+type TestLog = {
+  id: string;
+  level: "info" | "success" | "warn" | "error";
+  message: string;
+  timestamp: number;
+  detail?: string;
+};
 
-const isLocalProvider = computed(() => provider.value === "local" || provider.value === "ollama");
-const modelOptions = computed(() => {
-  const baseOptions =
-    isLocalProvider.value && ollamaModels.value.length
-      ? ollamaModels.value
-      : modelsByProvider[provider.value] ?? [];
-  const current = model.value.trim();
-  if (current && !baseOptions.includes(current)) {
-    return [current, ...baseOptions];
-  }
-  return baseOptions;
-});
-const baseUrlPlaceholder = computed(() => {
-  if (provider.value === "ollama") return "http://<LAN-IP>:11434";
-  if (provider.value === "local") return "http://localhost:11434";
-  if (provider.value === "azure") return "https://{resource}.openai.azure.com";
-  return "https://api.openai.com/v1";
-});
+type LlmModelFetchResponse = {
+  models: string[];
+  sourceUrl: string;
+};
 
-let isHydrating = false;
+const testLogs = ref<TestLog[]>([]);
+const testStatus = ref<"idle" | "running" | "ok" | "error">("idle");
 
-watch(provider, (next, prev) => {
-  if (isHydrating) return;
-  if (prev) {
-    providerConfigs.value = {
-      ...providerConfigs.value,
-      [prev]: snapshotProviderConfig(),
-    };
-  }
-  applyProviderConfig(next);
-  const nextModels = modelOptions.value;
-  if (!model.value) {
-    model.value = nextModels?.[0] ?? "";
-  }
-  if (next !== "local" && next !== "ollama") {
-    modelFetchStatus.value = "idle";
-    modelFetchMessage.value = "";
-    modelFetchAt.value = null;
-    modelTestStatus.value = "idle";
-    modelTestMessage.value = "";
-    modelTestDetail.value = "";
-    ollamaModels.value = [];
-  } else if (prev && prev !== next) {
-    ollamaModels.value = [];
-    modelFetchStatus.value = "idle";
-    modelFetchMessage.value = "";
-    modelFetchAt.value = null;
-    modelTestStatus.value = "idle";
-    modelTestMessage.value = "";
-    modelTestDetail.value = "";
-  }
-});
-
-watch(baseUrl, () => {
-  if (!isLocalProvider.value) return;
-  ollamaModels.value = [];
-  modelFetchStatus.value = "idle";
-  modelFetchMessage.value = "";
-  modelFetchAt.value = null;
-  modelTestStatus.value = "idle";
-  modelTestMessage.value = "";
-  modelTestDetail.value = "";
-});
+const isTesting = computed(() => testStatus.value === "running");
 
 const toolToggles = ref([
   { id: "terminal.exec_interactive", label: "terminal.exec_interactive", enabled: true },
@@ -189,32 +125,6 @@ const toolToggles = ref([
   { id: "git.diff", label: "git.diff", enabled: true },
   { id: "tests.run", label: "tests.run", enabled: false },
 ]);
-
-type TestLog = {
-  id: string;
-  level: "info" | "success" | "warn" | "error";
-  message: string;
-  timestamp: number;
-  detail?: string;
-};
-
-const testLogs = ref<TestLog[]>([]);
-const testStatus = ref<"idle" | "running" | "ok" | "error">("idle");
-
-const testStatusLabel = computed(() => {
-  switch (testStatus.value) {
-    case "running":
-      return "Testing";
-    case "ok":
-      return "Connected";
-    case "error":
-      return "Error";
-    default:
-      return "Idle";
-  }
-});
-
-const isTesting = computed(() => testStatus.value === "running");
 
 type LLMProfile = {
   profileName: string;
@@ -244,6 +154,7 @@ type LLMProfile = {
 
 const saveStatus = ref<"idle" | "saving" | "saved" | "error">("idle");
 const saveMessage = ref("");
+
 const saveStatusLabel = computed(() => {
   switch (saveStatus.value) {
     case "saving":
@@ -254,6 +165,60 @@ const saveStatusLabel = computed(() => {
       return "Save failed";
     default:
       return "Not saved";
+  }
+});
+
+let isHydrating = false;
+
+watch(provider, (next, prev) => {
+  if (isHydrating) return;
+  if (prev) {
+    providerConfigs.value = {
+      ...providerConfigs.value,
+      [prev]: snapshotProviderConfig(),
+    };
+  }
+  applyProviderConfig(next);
+  if (next !== "local" && next !== "ollama") {
+    modelFetchStatus.value = "idle";
+    modelFetchMessage.value = "";
+    modelFetchAt.value = null;
+    modelTestStatus.value = "idle";
+    modelTestMessage.value = "";
+    modelTestDetail.value = "";
+    ollamaModels.value = [];
+  } else if (prev && prev !== next) {
+    ollamaModels.value = [];
+    modelFetchStatus.value = "idle";
+    modelFetchMessage.value = "";
+    modelFetchAt.value = null;
+    modelTestStatus.value = "idle";
+    modelTestMessage.value = "";
+    modelTestDetail.value = "";
+  }
+  if (prev && prev !== next) {
+    resetOpenAiModels();
+  }
+});
+
+watch(baseUrl, () => {
+  if (provider.value === "local" || provider.value === "ollama") {
+    ollamaModels.value = [];
+    modelFetchStatus.value = "idle";
+    modelFetchMessage.value = "";
+    modelFetchAt.value = null;
+    modelTestStatus.value = "idle";
+    modelTestMessage.value = "";
+    modelTestDetail.value = "";
+  }
+  if (provider.value === "openai") {
+    resetOpenAiModels();
+  }
+});
+
+watch(apiKey, () => {
+  if (provider.value === "openai") {
+    resetOpenAiModels();
   }
 });
 
@@ -280,6 +245,7 @@ function resetDefaults() {
   modelTestStatus.value = "idle";
   modelTestMessage.value = "";
   modelTestDetail.value = "";
+  resetOpenAiModels();
   toolToggles.value = toolToggles.value.map((tool) => ({
     ...tool,
     enabled: ["fs.write_file", "tests.run"].includes(tool.id) ? false : true,
@@ -344,10 +310,7 @@ function applyProfile(profile: LLMProfile) {
   providerConfigs.value = mergedConfigs;
   provider.value = profile.provider;
   applyProviderConfig(profile.provider);
-  const nextModels = modelOptions.value;
-  if (!model.value) {
-    model.value = nextModels?.[0] ?? "";
-  }
+  resetOpenAiModels();
   prompt.value = profile.prompt;
   contextPolicy.value = profile.contextPolicy;
   memoryMode.value = profile.memoryMode;
@@ -411,14 +374,6 @@ function pushTestLog(level: TestLog["level"], message: string, detail?: string) 
   });
 }
 
-function formatTime(timestamp: number) {
-  return new Date(timestamp).toLocaleTimeString();
-}
-
-const modelFetchTime = computed(() =>
-  modelFetchAt.value ? formatTime(modelFetchAt.value) : "",
-);
-
 function normalizeBaseUrl(value: string) {
   return value.trim().replace(/\/+$/, "");
 }
@@ -442,18 +397,57 @@ function resolveOllamaBaseUrl() {
   return "";
 }
 
-function parseOllamaTags(payload: unknown) {
-  if (!payload || typeof payload !== "object") return [];
-  const record = payload as { models?: Array<{ name?: string }> };
-  if (!Array.isArray(record.models)) return [];
-  return record.models.map((item) => item.name).filter((name): name is string => Boolean(name));
+function resetOpenAiModels() {
+  openAiModels.value = [];
+  openAiFetchStatus.value = "idle";
+  openAiFetchMessage.value = "";
+  openAiFetchAt.value = null;
 }
 
-function parseOpenAiModels(payload: unknown) {
-  if (!payload || typeof payload !== "object") return [];
-  const record = payload as { data?: Array<{ id?: string }> };
-  if (!Array.isArray(record.data)) return [];
-  return record.data.map((item) => item.id).filter((name): name is string => Boolean(name));
+async function fetchOpenAiModels() {
+  openAiFetchStatus.value = "loading";
+  openAiFetchMessage.value = "";
+  openAiFetchAt.value = null;
+
+  const base = resolveBaseUrl();
+  if (!base) {
+    openAiFetchStatus.value = "error";
+    openAiFetchMessage.value = "Base URL is required.";
+    return;
+  }
+
+  if (!apiKey.value.trim()) {
+    openAiFetchStatus.value = "error";
+    openAiFetchMessage.value = "API key is required.";
+    return;
+  }
+
+  try {
+    const response = (await invoke("llm_fetch_models", {
+      request: {
+        provider: provider.value,
+        baseUrl: base,
+        apiKey: apiKey.value,
+      },
+    })) as LlmModelFetchResponse;
+    const uniqueModels = response.models ?? [];
+    if (!uniqueModels.length) {
+      openAiFetchStatus.value = "error";
+      openAiFetchMessage.value = "No models found.";
+      return;
+    }
+    openAiModels.value = uniqueModels;
+    openAiFetchStatus.value = "ok";
+    openAiFetchMessage.value = `Loaded ${uniqueModels.length} models from ${response.sourceUrl}`;
+    openAiFetchAt.value = Date.now();
+    if (!uniqueModels.includes(model.value)) {
+      model.value = uniqueModels[0];
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    openAiFetchStatus.value = "error";
+    openAiFetchMessage.value = message || "Unable to load models.";
+  }
 }
 
 async function fetchOllamaModels() {
@@ -468,40 +462,32 @@ async function fetchOllamaModels() {
     return;
   }
 
-  const endpoints = [
-    { url: `${base}/api/tags`, parser: parseOllamaTags },
-    { url: `${base}/v1/models`, parser: parseOpenAiModels },
-  ];
-
-  let lastError = "";
-  for (const endpoint of endpoints) {
-    try {
-      const response = await fetch(endpoint.url, { method: "GET" });
-      if (!response.ok) {
-        lastError = `HTTP ${response.status} ${response.statusText}`;
-        continue;
-      }
-      const payload = (await response.json()) as unknown;
-      const models = endpoint.parser(payload);
-      const uniqueModels = Array.from(new Set(models)).sort();
-      if (uniqueModels.length > 0) {
-        ollamaModels.value = uniqueModels;
-        modelFetchStatus.value = "ok";
-        modelFetchMessage.value = `Loaded ${uniqueModels.length} models from ${endpoint.url}`;
-        modelFetchAt.value = Date.now();
-        if (isLocalProvider.value && !uniqueModels.includes(model.value)) {
-          model.value = uniqueModels[0];
-        }
-        return;
-      }
-      lastError = "No models found.";
-    } catch (error) {
-      lastError = error instanceof Error ? error.message : String(error);
+  try {
+    const response = (await invoke("llm_fetch_models", {
+      request: {
+        provider: provider.value,
+        baseUrl: base,
+        apiKey: apiKey.value,
+      },
+    })) as LlmModelFetchResponse;
+    const uniqueModels = response.models ?? [];
+    if (!uniqueModels.length) {
+      modelFetchStatus.value = "error";
+      modelFetchMessage.value = "No models found.";
+      return;
     }
+    ollamaModels.value = uniqueModels;
+    modelFetchStatus.value = "ok";
+    modelFetchMessage.value = `Loaded ${uniqueModels.length} models from ${response.sourceUrl}`;
+    modelFetchAt.value = Date.now();
+    if (!uniqueModels.includes(model.value)) {
+      model.value = uniqueModels[0];
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    modelFetchStatus.value = "error";
+    modelFetchMessage.value = message || "Unable to load models.";
   }
-
-  modelFetchStatus.value = "error";
-  modelFetchMessage.value = lastError || "Unable to load models.";
 }
 
 async function testOllamaModel() {
@@ -524,45 +510,17 @@ async function testOllamaModel() {
   }
 
   try {
-    const showResponse = await fetch(`${base}/api/show`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: targetModel }),
-    });
-    if (showResponse.ok) {
+    const response = (await invoke("llm_fetch_models", {
+      request: {
+        provider: provider.value,
+        baseUrl: base,
+        apiKey: apiKey.value,
+      },
+    })) as LlmModelFetchResponse;
+    if (response.models.includes(targetModel)) {
       modelTestStatus.value = "ok";
       modelTestMessage.value = `Model "${targetModel}" is available.`;
       return;
-    }
-  } catch (error) {
-    modelTestDetail.value = error instanceof Error ? error.message : String(error);
-  }
-
-  try {
-    const response = await fetch(`${base}/v1/models`, { method: "GET" });
-    if (response.ok) {
-      const payload = (await response.json()) as unknown;
-      const models = parseOpenAiModels(payload);
-      if (models.includes(targetModel)) {
-        modelTestStatus.value = "ok";
-        modelTestMessage.value = `Model "${targetModel}" is available.`;
-        return;
-      }
-    }
-  } catch (error) {
-    modelTestDetail.value = error instanceof Error ? error.message : String(error);
-  }
-
-  try {
-    const response = await fetch(`${base}/api/tags`, { method: "GET" });
-    if (response.ok) {
-      const payload = (await response.json()) as unknown;
-      const models = parseOllamaTags(payload);
-      if (models.includes(targetModel)) {
-        modelTestStatus.value = "ok";
-        modelTestMessage.value = `Model "${targetModel}" is available.`;
-        return;
-      }
     }
   } catch (error) {
     modelTestDetail.value = error instanceof Error ? error.message : String(error);
@@ -663,13 +621,10 @@ onMounted(() => {
         </p>
       </div>
       <div class="header-actions">
-        <button class="btn ghost" type="button" :disabled="isTesting" @click="testConnection">
-          {{ isTesting ? "Testing..." : "Test connection" }}
-        </button>
-        <button class="btn primary" type="button" @click="saveProfile">Save profile</button>
         <span class="save-status" :data-status="saveStatus" :title="saveMessage">
           {{ saveStatusLabel }}
         </span>
+        <button class="btn primary" type="button" @click="saveProfile">Save profile</button>
       </div>
     </header>
 
@@ -679,172 +634,75 @@ onMounted(() => {
           <h3>Provider & Model</h3>
           <span class="pill">Profile: {{ profileName }}</span>
         </div>
-        <div class="field-grid">
-          <label>
-            <span>Provider</span>
-            <select v-model="provider">
-              <option v-for="item in providerOptions" :key="item.id" :value="item.id">
-                {{ item.label }}
-              </option>
-            </select>
-          </label>
-          <label>
-            <span>Model</span>
-            <select v-model="model">
-              <option v-for="item in modelOptions" :key="item" :value="item">
-                {{ item }}
-              </option>
-            </select>
-          </label>
-          <label class="full">
-            <span>Base URL</span>
-            <input v-model="baseUrl" type="text" :placeholder="baseUrlPlaceholder" />
-          </label>
-          <label class="full">
-            <span>API Key</span>
-            <input v-model="apiKey" type="password" placeholder="sk-..." />
-          </label>
-        </div>
-        <div v-if="isLocalProvider" class="model-tools">
-          <div class="model-tools__actions">
-            <button
-              class="btn ghost"
-              type="button"
-              :disabled="modelFetchStatus === 'loading'"
-              @click="fetchOllamaModels"
-            >
-              {{ modelFetchStatus === "loading" ? "Loading..." : "Load models" }}
-            </button>
-            <button
-              class="btn ghost"
-              type="button"
-              :disabled="modelTestStatus === 'running'"
-              @click="testOllamaModel"
-            >
-              {{ modelTestStatus === "running" ? "Testing..." : "Test model" }}
-            </button>
-            <span class="pill" :data-status="modelFetchStatus">{{ modelFetchLabel }}</span>
-            <span class="pill" :data-status="modelTestStatus">{{ modelTestLabel }}</span>
-          </div>
-          <div v-if="modelFetchMessage" class="hint">{{ modelFetchMessage }}</div>
-          <div v-if="modelFetchTime" class="hint">Last sync: {{ modelFetchTime }}</div>
-          <div v-if="modelTestMessage" class="hint">{{ modelTestMessage }}</div>
-          <pre v-if="modelTestDetail" class="model-detail">{{ modelTestDetail }}</pre>
-          <div v-if="ollamaModels.length" class="model-list">
-            <button
-              v-for="item in ollamaModels"
-              :key="item"
-              type="button"
-              class="model-chip"
-              :class="{ active: model === item }"
-              @click="model = item"
-            >
-              {{ item }}
-            </button>
-          </div>
-          <p v-else class="hint">No models loaded yet.</p>
-        </div>
+        <ProviderConfig
+          :provider="provider"
+          :model="model"
+          :api-key="apiKey"
+          :base-url="baseUrl"
+          :ollama-models="ollamaModels"
+          :open-ai-models="openAiModels"
+          :model-fetch-status="modelFetchStatus"
+          :model-fetch-message="modelFetchMessage"
+          :model-fetch-at="modelFetchAt"
+          :model-test-status="modelTestStatus"
+          :model-test-message="modelTestMessage"
+          :model-test-detail="modelTestDetail"
+          :open-ai-fetch-status="openAiFetchStatus"
+          :open-ai-fetch-message="openAiFetchMessage"
+          :open-ai-fetch-at="openAiFetchAt"
+          @update:provider="provider = $event"
+          @update:model="model = $event"
+          @update:apiKey="apiKey = $event"
+          @update:baseUrl="baseUrl = $event"
+          @fetchOllamaModels="fetchOllamaModels"
+          @testOllamaModel="testOllamaModel"
+          @fetchOpenAiModels="fetchOpenAiModels"
+        />
       </section>
 
       <section class="card wide">
-        <div class="card-head">
-          <h3>Connection test</h3>
-          <span class="pill" :data-status="testStatus">{{ testStatusLabel }}</span>
-        </div>
-        <div v-if="testLogs.length" class="test-logs">
-          <div
-            v-for="log in testLogs"
-            :key="log.id"
-            class="test-log"
-            :data-level="log.level"
-          >
-            <div class="test-log-main">
-              <span class="log-time">{{ formatTime(log.timestamp) }}</span>
-              <span class="log-level">{{ log.level }}</span>
-              <span class="log-message">{{ log.message }}</span>
-            </div>
-            <pre v-if="log.detail" class="log-detail">{{ log.detail }}</pre>
-          </div>
-        </div>
-        <p v-else class="hint">No test output yet.</p>
+        <ConnectionTest
+          :test-logs="testLogs"
+          :test-status="testStatus"
+          :is-testing="isTesting"
+          @testConnection="testConnection"
+        />
       </section>
 
       <section class="card wide">
-        <div class="card-head">
-          <h3>System Prompt</h3>
-          <span class="pill">Tokens tracked</span>
-        </div>
-        <textarea v-model="prompt" rows="6"></textarea>
-        <div class="hint">
-          Keep the system prompt short and precise. Avoid leaking secrets or environment details.
-        </div>
+        <SystemPrompt
+          :prompt="prompt"
+          @update:prompt="prompt = $event"
+        />
       </section>
 
       <section class="card">
-        <div class="card-head">
-          <h3>Context Strategy</h3>
-          <span class="pill">Policy {{ contextPolicy }}</span>
-        </div>
-        <div class="field-grid">
-          <label>
-            <span>Context policy</span>
-            <select v-model="contextPolicy">
-              <option value="adaptive">Adaptive</option>
-              <option value="terminal-first">Terminal first</option>
-              <option value="code-first">Code first</option>
-              <option value="summary-first">Summary first</option>
-            </select>
-          </label>
-          <label>
-            <span>Memory</span>
-            <select v-model="memoryMode">
-              <option value="session">Session</option>
-              <option value="workspace">Workspace</option>
-              <option value="off">Off</option>
-            </select>
-          </label>
-          <label>
-            <span>Terminal cap (lines)</span>
-            <input v-model.number="maxTerminalLines" type="number" min="200" step="100" />
-          </label>
-          <label class="switch">
-            <input v-model="enableCaching" type="checkbox" />
-            <span>Enable response caching</span>
-          </label>
-        </div>
+        <ContextStrategy
+          :context-policy="contextPolicy"
+          :memory-mode="memoryMode"
+          :max-terminal-lines="maxTerminalLines"
+          :enable-caching="enableCaching"
+          @update:contextPolicy="contextPolicy = $event"
+          @update:memoryMode="memoryMode = $event"
+          @update:maxTerminalLines="maxTerminalLines = $event"
+          @update:enableCaching="enableCaching = $event"
+        />
       </section>
 
       <section class="card">
-        <div class="card-head">
-          <h3>Tool Allowlist</h3>
-          <span class="pill">Least privilege</span>
-        </div>
-        <div class="tool-grid">
-          <label v-for="tool in toolToggles" :key="tool.id" class="toggle-pill">
-            <input v-model="tool.enabled" type="checkbox" />
-            <span>{{ tool.label }}</span>
-          </label>
-        </div>
+        <ToolAllowlist
+          :tool-toggles="toolToggles"
+          @update:toolToggles="toolToggles = $event"
+        />
       </section>
 
       <section class="card">
-        <div class="card-head">
-          <h3>Audit & Redaction</h3>
-          <span class="pill">Compliance</span>
-        </div>
-        <div class="toggle-row">
-          <label class="switch">
-            <input v-model="auditLogs" type="checkbox" />
-            <span>Append-only audit log</span>
-          </label>
-          <label class="switch">
-            <input v-model="redactSecrets" type="checkbox" />
-            <span>Redact secrets in logs</span>
-          </label>
-        </div>
-        <div class="hint">
-          Logs are stored locally and can be exported for review. Redaction masks API keys.
-        </div>
+        <AuditSettings
+          :audit-logs="auditLogs"
+          :redact-secrets="redactSecrets"
+          @update:auditLogs="auditLogs = $event"
+          @update:redactSecrets="redactSecrets = $event"
+        />
       </section>
     </div>
 
@@ -889,6 +747,7 @@ onMounted(() => {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+  align-items: center;
 }
 
 .save-status {
@@ -897,9 +756,20 @@ onMounted(() => {
   text-transform: uppercase;
   letter-spacing: 0.14em;
   padding: 6px 10px;
-  border-radius: 999px;
-  border: 1px solid var(--line);
+  border-radius: 0;
+  border: 1px solid rgba(var(--line-rgb), 0.4);
   color: var(--text-secondary);
+  background: rgba(4, 12, 22, 0.8);
+  clip-path: polygon(
+    var(--hud-cut-xs) 0,
+    calc(100% - var(--hud-cut-xs)) 0,
+    100% var(--hud-cut-xs),
+    100% calc(100% - var(--hud-cut-xs)),
+    calc(100% - var(--hud-cut-xs)) 100%,
+    var(--hud-cut-xs) 100%,
+    0 calc(100% - var(--hud-cut-xs)),
+    0 var(--hud-cut-xs)
+  );
 }
 
 .save-status[data-status="saved"] {
@@ -922,13 +792,23 @@ onMounted(() => {
 
 .card {
   padding: 18px;
-  border-radius: 18px;
-  background: var(--panel);
-  border: 1px solid var(--line);
+  border-radius: 0;
+  background: var(--panel-core);
+  border: 1px solid rgba(var(--line-rgb), 0.4);
   display: grid;
   gap: 14px;
   position: relative;
   overflow: hidden;
+  clip-path: polygon(
+    var(--hud-cut-sm) 0,
+    calc(100% - var(--hud-cut-sm)) 0,
+    100% var(--hud-cut-sm),
+    100% calc(100% - var(--hud-cut-sm)),
+    calc(100% - var(--hud-cut-sm)) 100%,
+    var(--hud-cut-sm) 100%,
+    0 calc(100% - var(--hud-cut-sm)),
+    0 var(--hud-cut-sm)
+  );
 }
 
 .card::after {
@@ -958,6 +838,9 @@ onMounted(() => {
 .card-head h3 {
   margin: 0;
   font-size: 1.1rem;
+  font-family: var(--font-display);
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
 }
 
 .pill {
@@ -965,241 +848,20 @@ onMounted(() => {
   text-transform: uppercase;
   letter-spacing: 0.14em;
   padding: 6px 10px;
-  border-radius: 999px;
-  border: 1px solid rgba(var(--accent-rgb), 0.3);
+  border-radius: 0;
+  border: 1px solid rgba(var(--accent-rgb), 0.4);
   color: var(--accent);
   background: rgba(var(--accent-rgb), 0.12);
-}
-
-.pill[data-status="loading"],
-.pill[data-status="running"] {
-  color: var(--accent);
-  border-color: rgba(var(--accent-rgb), 0.5);
-  background: rgba(var(--accent-rgb), 0.14);
-}
-
-.pill[data-status="ok"] {
-  color: var(--status-success);
-  border-color: rgba(var(--status-success-rgb), 0.5);
-  background: rgba(var(--status-success-rgb), 0.12);
-}
-
-.pill[data-status="error"] {
-  color: var(--status-warning);
-  border-color: rgba(var(--status-warning-rgb), 0.5);
-  background: rgba(var(--status-warning-rgb), 0.12);
-}
-
-.field-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-  position: relative;
-  z-index: 1;
-}
-
-.field-grid label {
-  display: grid;
-  gap: 6px;
-  font-size: 0.75rem;
-  text-transform: uppercase;
-  letter-spacing: 0.16em;
-  color: var(--text-secondary);
-}
-
-.field-grid label.full {
-  grid-column: span 2;
-}
-
-select,
-input,
-textarea {
-  border-radius: 12px;
-  border: 1px solid var(--line);
-  padding: 10px 12px;
-  background: var(--panel-glass);
-  color: var(--text-primary);
-  font-family: inherit;
-}
-
-textarea {
-  resize: vertical;
-  min-height: 140px;
-  position: relative;
-  z-index: 1;
-}
-
-input[type="range"] {
-  accent-color: var(--accent);
-}
-
-.range-meta {
-  font-size: 0.75rem;
-  color: var(--text-secondary);
-}
-
-.toggle-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px 16px;
-  position: relative;
-  z-index: 1;
-}
-
-.switch {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 0.8rem;
-  color: var(--text-soft);
-}
-
-.switch input {
-  accent-color: var(--status-success);
-}
-
-.tool-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-  position: relative;
-  z-index: 1;
-}
-
-.toggle-pill {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 10px;
-  border-radius: 12px;
-  border: 1px solid var(--line);
-  background: var(--panel-glass);
-  font-size: 0.78rem;
-  color: var(--text-soft);
-}
-
-.toggle-pill input {
-  accent-color: var(--accent);
-}
-
-.hint {
-  font-size: 0.78rem;
-  color: var(--text-secondary);
-  position: relative;
-  z-index: 1;
-}
-
-.model-tools {
-  display: grid;
-  gap: 10px;
-  position: relative;
-  z-index: 1;
-}
-
-.model-tools__actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: center;
-}
-
-.model-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.model-chip {
-  border-radius: 999px;
-  border: 1px solid rgba(var(--line-rgb), 0.4);
-  background: rgba(7, 12, 22, 0.75);
-  color: var(--text-soft);
-  padding: 6px 10px;
-  font-size: 0.7rem;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.model-chip:hover {
-  border-color: rgba(var(--accent-rgb), 0.5);
-  color: var(--text-primary);
-  box-shadow: 0 0 12px rgba(var(--accent-rgb), 0.18);
-}
-
-.model-chip.active {
-  border-color: rgba(var(--accent-rgb), 0.6);
-  color: var(--accent);
-  background: rgba(var(--accent-rgb), 0.12);
-  box-shadow: 0 0 14px rgba(var(--accent-rgb), 0.2);
-}
-
-.model-detail {
-  margin: 0;
-  padding: 10px 12px;
-  border-radius: 10px;
-  background: rgba(5, 8, 14, 0.7);
-  border: 1px solid var(--line);
-  font-size: 0.7rem;
-  color: var(--text-soft);
-  font-family: "JetBrains Mono", monospace;
-  white-space: pre-wrap;
-  max-height: 160px;
-  overflow: auto;
-}
-
-.test-logs {
-  display: grid;
-  gap: 10px;
-  position: relative;
-  z-index: 1;
-}
-
-.test-log {
-  display: grid;
-  gap: 6px;
-  padding: 10px 12px;
-  border-radius: 12px;
-  border: 1px solid var(--line);
-  background: var(--panel-glass);
-}
-
-.test-log-main {
-  display: grid;
-  grid-template-columns: auto auto 1fr;
-  gap: 8px;
-  align-items: center;
-  font-size: 0.75rem;
-}
-
-.log-time {
-  color: var(--text-secondary);
-}
-
-.log-level {
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-  font-size: 0.6rem;
-  color: var(--status-success);
-}
-
-.log-message {
-  color: var(--text-primary);
-}
-
-.log-detail {
-  margin: 0;
-  padding: 10px 12px;
-  border-radius: 10px;
-  background: rgba(5, 8, 14, 0.7);
-  border: 1px solid var(--line);
-  font-size: 0.7rem;
-  color: var(--text-soft);
-  font-family: "JetBrains Mono", monospace;
-  white-space: pre-wrap;
-  max-height: 220px;
-  overflow: auto;
+  clip-path: polygon(
+    var(--hud-cut-xs) 0,
+    calc(100% - var(--hud-cut-xs)) 0,
+    100% var(--hud-cut-xs),
+    100% calc(100% - var(--hud-cut-xs)),
+    calc(100% - var(--hud-cut-xs)) 100%,
+    var(--hud-cut-xs) 100%,
+    0 calc(100% - var(--hud-cut-xs)),
+    0 var(--hud-cut-xs)
+  );
 }
 
 .settings-footer {
@@ -1215,6 +877,13 @@ input[type="range"] {
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
+}
+
+.hint {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  position: relative;
+  z-index: 1;
 }
 
 .eyebrow {
@@ -1234,18 +903,6 @@ input[type="range"] {
     grid-column: auto;
   }
 
-  .field-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .field-grid label.full {
-    grid-column: auto;
-  }
-
-  .tool-grid {
-    grid-template-columns: 1fr;
-  }
-
   .settings-header {
     flex-direction: column;
   }
@@ -1256,5 +913,3 @@ input[type="range"] {
   }
 }
 </style>
-
-

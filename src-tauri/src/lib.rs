@@ -8,6 +8,10 @@ use uuid::Uuid;
 use tauri::{AppHandle, State};
 
 mod services;
+#[cfg(feature = "cli")]
+pub mod cli;
+#[cfg(feature = "cli")]
+mod automation;
 
 use services::audit::AuditLog;
 use services::agent::{
@@ -19,8 +23,8 @@ use services::kernel::{
     KernelManager, KernelPlanStatusRequest, KernelPlanUpdateRequest, KernelStartRequest,
     KernelUserInputRequest, RunState,
 };
-use services::judge::JudgeRule;
-use services::llm::LlmProfile;
+use services::kernel::JudgeRule;
+use services::llm::{fetch_models, LlmModelFetchRequest, LlmModelFetchResponse, LlmProfile};
 use services::pty::{
     TerminalCreateRequest, TerminalExecRequest, TerminalKillRequest, TerminalManager,
     TerminalReplayRequest, TerminalReplayResponse, TerminalResizeRequest, TerminalSessionInfo,
@@ -483,6 +487,13 @@ fn llm_save_profile(
     profile: LlmProfile,
 ) -> Result<LlmProfile, String> {
     state.kernel.save_llm_profile(profile)
+}
+
+#[tauri::command]
+async fn llm_fetch_models(
+    request: LlmModelFetchRequest,
+) -> Result<LlmModelFetchResponse, String> {
+    fetch_models(request).await
 }
 
 #[tauri::command]
@@ -985,6 +996,7 @@ pub fn run() {
             kernel_plan_status,
             llm_get_profile,
             llm_save_profile,
+            llm_fetch_models,
             task_get_active,
             task_save_config,
             judge_get_rules,

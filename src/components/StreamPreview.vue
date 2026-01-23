@@ -224,14 +224,24 @@ function actionIcon(type: string) {
 
 .stream-card {
   position: relative;
-  border-radius: 12px;
-  border: 1px solid rgba(var(--accent-rgb), 0.18);
+  border-radius: 0;
+  border: 1px solid rgba(var(--accent-rgb), 0.35);
   background: linear-gradient(145deg, rgba(8, 12, 20, 0.92), rgba(10, 18, 30, 0.92));
   padding: 10px 12px;
   display: grid;
   gap: 8px;
   box-shadow: 0 8px 18px rgba(0, 0, 0, 0.3);
   overflow: hidden;
+  clip-path: polygon(
+    var(--hud-cut-sm) 0,
+    calc(100% - var(--hud-cut-sm)) 0,
+    100% var(--hud-cut-sm),
+    100% calc(100% - var(--hud-cut-sm)),
+    calc(100% - var(--hud-cut-sm)) 100%,
+    var(--hud-cut-sm) 100%,
+    0 calc(100% - var(--hud-cut-sm)),
+    0 var(--hud-cut-sm)
+  );
 }
 
 .stream-card::before {
@@ -290,6 +300,7 @@ function actionIcon(type: string) {
   text-transform: uppercase;
   letter-spacing: 0.12em;
   color: var(--text-secondary);
+  font-family: var(--font-display);
 }
 
 .card-icon {
@@ -394,11 +405,21 @@ function actionIcon(type: string) {
 
 .card-tag {
   padding: 2px 8px;
-  border-radius: 999px;
-  border: 1px solid rgba(var(--accent-rgb), 0.3);
+  border-radius: 0;
+  border: 1px solid rgba(var(--accent-rgb), 0.4);
   background: rgba(var(--accent-rgb), 0.1);
   color: var(--accent);
   font-size: 0.6rem;
+  clip-path: polygon(
+    var(--hud-cut-xs) 0,
+    calc(100% - var(--hud-cut-xs)) 0,
+    100% var(--hud-cut-xs),
+    100% calc(100% - var(--hud-cut-xs)),
+    calc(100% - var(--hud-cut-xs)) 100%,
+    var(--hud-cut-xs) 100%,
+    0 calc(100% - var(--hud-cut-xs)),
+    0 var(--hud-cut-xs)
+  );
 }
 
 .card-title {
@@ -420,7 +441,7 @@ function actionIcon(type: string) {
 }
 
 .card-path {
-  font-family: "JetBrains Mono", monospace;
+  font-family: var(--font-body);
   font-size: 0.72rem;
   color: var(--text-secondary);
 }
@@ -438,14 +459,24 @@ function actionIcon(type: string) {
   margin: 0;
   font-size: 0.72rem;
   color: var(--text-soft);
-  font-family: "JetBrains Mono", monospace;
+  font-family: var(--font-body);
   white-space: pre-wrap;
   max-height: 240px;
   overflow: auto;
   background: rgba(5, 8, 14, 0.7);
-  border: 1px solid var(--line);
-  border-radius: 8px;
+  border: 1px solid rgba(var(--line-rgb), 0.4);
+  border-radius: 0;
   padding: 8px;
+  clip-path: polygon(
+    var(--hud-cut-xs) 0,
+    calc(100% - var(--hud-cut-xs)) 0,
+    100% var(--hud-cut-xs),
+    100% calc(100% - var(--hud-cut-xs)),
+    calc(100% - var(--hud-cut-xs)) 100%,
+    var(--hud-cut-xs) 100%,
+    0 calc(100% - var(--hud-cut-xs)),
+    0 var(--hud-cut-xs)
+  );
 }
 </style>
 

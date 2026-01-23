@@ -1,0 +1,63 @@
+# Clippy configuration for TauriHands project
+
+# Enable more pedantic checks for better code quality
+pedantic = true
+
+# Enable all lints (except those explicitly disabled)
+warn-all = true
+
+# Allow certain pedantic lints that might be too strict for this project
+allow-pedantic = [
+    "module_name_repetitions",  # Allow some repetition in module names for clarity
+    "must_use_candidate",       # Allow ignoring some must_use suggestions
+    "missing_errors_doc",       # Don't require docs for error types
+    "missing_panics_doc",      # Don't require docs for panic functions
+]
+
+# Disable specific lints that are not applicable or too restrictive
+deny = [
+    "clippy::all",             # Start with all lints enabled
+    "clippy::unwrap_used",      # Prefer safe error handling
+    "clippy::expect_used",      # Prefer safe error handling
+    "clippy::panic",           # Avoid panics in production code
+    "clippy::unimplemented",    # Avoid unimplemented! in production
+    "clippy::todo",            # Avoid TODO comments in production
+    "clippy::indexing_slicing", # Prefer safe indexing
+    "clippy::get_unwrap",      # Prefer safe Option handling
+]
+
+# Warn about these specific issues
+warn = [
+    "clippy::pedantic",        # Enable pedantic lints as warnings
+    "clippy::nursery",         # Enable experimental lints as warnings
+    "clippy::cargo",          # Cargo-related lints
+    "clippy::complexity",      # Complexity-related lints
+    "clippy::correctness",     # Correctness-related lints
+    "clippy::suspicious",      # Suspicious patterns
+    "clippy::style",          # Style-related lints
+    "clippy::perf",           # Performance-related lints
+]
+
+# Allow these specific lints despite being in the above categories
+allow = [
+    "clippy::module_name_repetitions",
+    "clippy::multiple_crate_versions",  # Allow multiple versions for development
+    "clippy::bool_comparison",  # Allow explicit bool comparisons for clarity
+    "clippy::float_cmp",       # Allow float comparisons in some cases
+    "clippy::similar_names",    # Allow similar names in some contexts
+]
+
+# Configuration for specific lints
+[complexity]
+threshold = 15  # Cyclomatic complexity threshold
+
+[perf]
+# Performance-related configurations
+too-many-arguments-threshold = 7
+
+[style]
+# Style-related configurations
+single-char-binding-names-threshold = 4
+
+# Documentation requirements
+doc-valid-idents = ["Clippy", "Tauri", "LLM", "API"]

@@ -13,6 +13,7 @@ const planStepsInput = ref("");
 const dialogError = ref("");
 const showSteps = ref(false);
 const actionError = ref("");
+const showDialog = ref(false);
 
 const canExecute = computed(() => Boolean(plan.value) && runState.value !== "RUNNING");
 const executeLabel = computed(() => {
@@ -48,10 +49,15 @@ async function submitPlan() {
   }
   dialogError.value = "";
   const steps = showSteps.value ? parseSteps(planStepsInput.value) : [];
-  await updatePlan(goal, steps, steps.length === 0);
-  planGoal.value = goal;
-  planStepsInput.value = "";
-  showSteps.value = false;
+  try {
+    await updatePlan(goal, steps, steps.length === 0);
+    planGoal.value = goal;
+    planStepsInput.value = "";
+    showSteps.value = false;
+    showDialog.value = false;
+  } catch (error) {
+    dialogError.value = error instanceof Error ? error.message : String(error);
+  }
 }
 
 async function executePlan() {
@@ -79,40 +85,26 @@ watch(
   },
   { immediate: true },
 );
+
+function openDialog() {
+  showDialog.value = true;
+}
+
+function closeDialog() {
+  showDialog.value = false;
+  dialogError.value = "";
+  showSteps.value = false;
+  planStepsInput.value = "";
+}
 </script>
 
 <template>
   <div class="plan-panel">
     <div class="plan-actions">
-      <button class="btn primary" type="button" @click="submitPlan">Generate plan</button>
+      <button class="btn primary" type="button" @click="openDialog">Generate plan</button>
       <button class="btn" type="button" :disabled="!canExecute" @click="executePlan">
         {{ executeLabel }}
       </button>
-    </div>
-    <div class="plan-editor">
-      <label class="editor-field">
-        <span>Goal</span>
-        <textarea
-          v-model="planGoal"
-          rows="2"
-          placeholder="Describe the goal to generate steps"
-        ></textarea>
-      </label>
-      <div class="editor-actions">
-        <button class="btn ghost" type="button" @click="showSteps = !showSteps">
-          {{ showSteps ? "Hide steps" : "Add steps (optional)" }}
-        </button>
-        <span class="editor-hint">Optional: add manual steps to lock the outline.</span>
-      </div>
-      <label v-if="showSteps" class="editor-field">
-        <span>Steps</span>
-        <textarea
-          v-model="planStepsInput"
-          rows="4"
-          placeholder="Manual steps, one per line"
-        ></textarea>
-      </label>
-      <p v-if="dialogError" class="error-text">{{ dialogError }}</p>
     </div>
     <p v-if="actionError" class="error-text">{{ actionError }}</p>
     <div v-if="!plan" class="empty">No plan yet. Generate a plan to begin.</div>
@@ -136,6 +128,49 @@ watch(
       </ul>
     </div>
   </div>
+
+  <teleport to="body">
+    <div v-if="showDialog" class="plan-dialog" @click.self="closeDialog">
+      <div class="plan-dialog__card" role="dialog" aria-modal="true" aria-labelledby="plan-dialog-title">
+        <header class="plan-dialog__header">
+          <div>
+            <p class="eyebrow">Plan</p>
+            <h3 id="plan-dialog-title">Generate plan</h3>
+          </div>
+          <button class="btn ghost" type="button" @click="closeDialog">Close</button>
+        </header>
+        <div class="plan-dialog__body plan-editor">
+          <label class="editor-field">
+            <span>Goal</span>
+            <textarea
+              v-model="planGoal"
+              rows="2"
+              placeholder="Describe the goal to generate steps"
+            ></textarea>
+          </label>
+          <div class="editor-actions">
+            <button class="btn ghost" type="button" @click="showSteps = !showSteps">
+              {{ showSteps ? "Hide steps" : "Add steps (optional)" }}
+            </button>
+            <span class="editor-hint">Optional: add manual steps to lock the outline.</span>
+          </div>
+          <label v-if="showSteps" class="editor-field">
+            <span>Steps</span>
+            <textarea
+              v-model="planStepsInput"
+              rows="4"
+              placeholder="Manual steps, one per line"
+            ></textarea>
+          </label>
+          <p v-if="dialogError" class="error-text">{{ dialogError }}</p>
+        </div>
+        <footer class="plan-dialog__footer">
+          <button class="btn ghost" type="button" @click="closeDialog">Cancel</button>
+          <button class="btn primary" type="button" @click="submitPlan">Generate plan</button>
+        </footer>
+      </div>
+    </div>
+  </teleport>
 </template>
 
 <style scoped>
@@ -155,9 +190,19 @@ watch(
   display: grid;
   gap: 10px;
   padding: 12px;
-  border-radius: 14px;
-  border: 1px solid rgba(var(--line-rgb), 0.3);
-  background: rgba(7, 12, 22, 0.7);
+  border-radius: 0;
+  border: 1px solid rgba(var(--line-rgb), 0.4);
+  background: rgba(7, 12, 22, 0.75);
+  clip-path: polygon(
+    var(--hud-cut-sm) 0,
+    calc(100% - var(--hud-cut-sm)) 0,
+    100% var(--hud-cut-sm),
+    100% calc(100% - var(--hud-cut-sm)),
+    calc(100% - var(--hud-cut-sm)) 100%,
+    var(--hud-cut-sm) 100%,
+    0 calc(100% - var(--hud-cut-sm)),
+    0 var(--hud-cut-sm)
+  );
 }
 
 .editor-field {
@@ -165,18 +210,31 @@ watch(
   gap: 6px;
   font-size: 0.8rem;
   color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-family: var(--font-display);
 }
 
 .editor-field textarea {
   width: 100%;
-  border-radius: 12px;
-  border: 1px solid var(--line);
+  border-radius: 0;
+  border: 1px solid rgba(var(--line-rgb), 0.45);
   padding: 10px 12px;
   background: rgba(4, 10, 20, 0.8);
   color: var(--text-primary);
-  font-family: "JetBrains Mono", monospace;
+  font-family: var(--font-body);
   font-size: 0.8rem;
   resize: vertical;
+  clip-path: polygon(
+    var(--hud-cut-xs) 0,
+    calc(100% - var(--hud-cut-xs)) 0,
+    100% var(--hud-cut-xs),
+    100% calc(100% - var(--hud-cut-xs)),
+    calc(100% - var(--hud-cut-xs)) 100%,
+    var(--hud-cut-xs) 100%,
+    0 calc(100% - var(--hud-cut-xs)),
+    0 var(--hud-cut-xs)
+  );
 }
 
 .editor-field textarea:focus {
@@ -223,13 +281,23 @@ watch(
   justify-content: space-between;
   gap: 16px;
   padding: 12px 14px;
-  border-radius: 14px;
-  border: 1px solid rgba(var(--accent-rgb), 0.15);
+  border-radius: 0;
+  border: 1px solid rgba(var(--accent-rgb), 0.3);
   background: linear-gradient(135deg, rgba(7, 12, 22, 0.92), rgba(14, 22, 36, 0.9));
   box-shadow: 0 8px 22px rgba(0, 0, 0, 0.25);
   color: var(--text-secondary);
   font-size: 0.86rem;
   overflow: hidden;
+  clip-path: polygon(
+    var(--hud-cut-sm) 0,
+    calc(100% - var(--hud-cut-sm)) 0,
+    100% var(--hud-cut-sm),
+    100% calc(100% - var(--hud-cut-sm)),
+    calc(100% - var(--hud-cut-sm)) 100%,
+    var(--hud-cut-sm) 100%,
+    0 calc(100% - var(--hud-cut-sm)),
+    0 var(--hud-cut-sm)
+  );
 }
 
 .step-card::before {
@@ -271,9 +339,19 @@ watch(
   color: rgba(var(--accent-rgb), 0.7);
   text-transform: uppercase;
   padding: 6px 8px;
-  border-radius: 8px;
-  background: rgba(9, 14, 22, 0.8);
-  border: 1px solid rgba(var(--accent-rgb), 0.2);
+  border-radius: 0;
+  background: rgba(9, 14, 22, 0.85);
+  border: 1px solid rgba(var(--accent-rgb), 0.3);
+  clip-path: polygon(
+    var(--hud-cut-xs) 0,
+    calc(100% - var(--hud-cut-xs)) 0,
+    100% var(--hud-cut-xs),
+    100% calc(100% - var(--hud-cut-xs)),
+    calc(100% - var(--hud-cut-xs)) 100%,
+    var(--hud-cut-xs) 100%,
+    0 calc(100% - var(--hud-cut-xs)),
+    0 var(--hud-cut-xs)
+  );
 }
 
 .step-text {
@@ -284,7 +362,7 @@ watch(
 
 .step-toggle {
   padding: 4px 8px;
-  border-radius: 999px;
+  border-radius: 0;
   border: 1px solid var(--line);
   background: rgba(var(--accent-rgb), 0.08);
   color: var(--accent);
@@ -292,6 +370,16 @@ watch(
   text-transform: uppercase;
   letter-spacing: 0.08em;
   cursor: pointer;
+  clip-path: polygon(
+    var(--hud-cut-xs) 0,
+    calc(100% - var(--hud-cut-xs)) 0,
+    100% var(--hud-cut-xs),
+    100% calc(100% - var(--hud-cut-xs)),
+    calc(100% - var(--hud-cut-xs)) 100%,
+    var(--hud-cut-xs) 100%,
+    0 calc(100% - var(--hud-cut-xs)),
+    0 var(--hud-cut-xs)
+  );
 }
 
 .step-title {
@@ -333,6 +421,68 @@ watch(
   margin: 0;
   color: var(--status-error);
   font-size: 0.75rem;
+}
+
+.plan-dialog {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(135deg, rgba(2, 6, 16, 0.82), rgba(2, 10, 20, 0.6));
+  backdrop-filter: blur(6px);
+  z-index: 40;
+}
+
+.plan-dialog__card {
+  width: min(640px, 92vw);
+  padding: 20px 22px;
+  border-radius: 0;
+  border: 1px solid rgba(var(--accent-rgb), 0.5);
+  background: var(--panel-core-strong);
+  box-shadow:
+    0 0 26px rgba(var(--accent-rgb), 0.2),
+    0 28px 60px rgba(0, 0, 0, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  display: grid;
+  gap: 16px;
+  clip-path: polygon(
+    var(--hud-cut) 0,
+    calc(100% - var(--hud-cut)) 0,
+    100% var(--hud-cut),
+    100% calc(100% - var(--hud-cut)),
+    calc(100% - var(--hud-cut)) 100%,
+    var(--hud-cut) 100%,
+    0 calc(100% - var(--hud-cut)),
+    0 var(--hud-cut)
+  );
+}
+
+.plan-dialog__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.plan-dialog__header h3 {
+  margin: 4px 0 0;
+  font-size: 1rem;
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+  font-family: var(--font-display);
+  color: var(--text-primary);
+}
+
+.plan-dialog__body {
+  display: grid;
+  gap: 10px;
+}
+
+.plan-dialog__footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 </style>
 

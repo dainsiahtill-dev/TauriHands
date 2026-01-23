@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { agentStore } from "../agents/orchestrator";
 import CyberScene from "../components/CyberScene.vue";
+import ThemeToggle from "../components/ThemeToggle.vue";
 
 type ViewId = "console" | "llm" | "tools" | "security";
 
@@ -179,6 +180,7 @@ onMounted(() => {
         </div>
 
         <div class="app-header__right">
+          <ThemeToggle />
           <div class="meta-card">
             <span>Model</span>
             <strong>GPT-4</strong>

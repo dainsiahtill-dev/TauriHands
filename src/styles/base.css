@@ -1,0 +1,98 @@
+@import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Oxanium:wght@500;600;700&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: dark;
+    --font-body: "JetBrains Mono", "Courier New", monospace;
+    --font-display: "Oxanium", "JetBrains Mono", sans-serif;
+    --hud-cut: 16px;
+    --hud-cut-sm: 10px;
+    --hud-cut-xs: 6px;
+    --bg: #020408;
+    --bg-rgb: 2, 4, 8;
+    --panel: rgba(2, 10, 20, 0.85);
+    --panel-strong: rgba(2, 10, 20, 0.92);
+    --panel-glass: rgba(2, 10, 20, 0.72);
+    --panel-core: linear-gradient(135deg, rgba(3, 10, 20, 0.94), rgba(1, 6, 14, 0.9));
+    --panel-core-strong: linear-gradient(135deg, rgba(3, 12, 24, 0.98), rgba(1, 6, 14, 0.94));
+    --line-rgb: 0, 243, 255;
+    --line: rgba(var(--line-rgb), 0.28);
+    --line-bright: rgba(var(--line-rgb), 0.48);
+    --muted: #8ecbe0;
+    --accent: #00f3ff;
+    --accent-2: #0088ff;
+    --accent-3: #00c2ff;
+    --accent-rgb: 0, 243, 255;
+    --accent-2-rgb: 0, 136, 255;
+    --accent-3-rgb: 0, 194, 255;
+    --glow: rgba(var(--accent-rgb), 0.24);
+    --neon-blue: #00f3ff;
+    --neon-pink: #00c2ff;
+    --neon-green: #00f3ff;
+    --panel-edge: rgba(var(--accent-rgb), 0.26);
+    --panel-edge-strong: rgba(var(--accent-3-rgb), 0.4);
+    --grid-soft: rgba(255, 255, 255, 0.025);
+    --shadow: 0 32px 70px rgba(2, 6, 16, 0.75);
+    --depth-shadow: rgba(2, 6, 16, 0.65);
+    --depth-shadow-strong: rgba(2, 6, 16, 0.85);
+    --bevel-light: rgba(255, 255, 255, 0.06);
+    --bevel-dark: rgba(0, 0, 0, 0.45);
+    --text-primary: #d2f6ff;
+    --text-secondary: #8ecbe0;
+    --text-tertiary: #3f6b85;
+    --text-soft: #b7f0ff;
+    --text-secondary-rgb: 142, 203, 224;
+    --text-tertiary-rgb: 63, 107, 133;
+    --status-success: #00f3ff;
+    --status-warning: #ffd166;
+    --status-error: #ff6b6b;
+    --status-info: #0088ff;
+    --status-success-rgb: 0, 243, 255;
+    --status-warning-rgb: 255, 209, 102;
+    --status-error-rgb: 255, 107, 107;
+    --status-info-rgb: 0, 136, 255;
+    
+    /* Transition variables */
+    --transition-duration: 0.3s;
+    --transition-timing: ease-in-out;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  html,
+  body,
+  #app {
+    height: 100%;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+  }
+
+  body {
+    font-family: var(--font-body);
+    color: var(--text-primary);
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    overflow: hidden;
+    background:
+      radial-gradient(circle at 18% 18%, rgba(var(--accent-rgb), 0.14), transparent 46%),
+      radial-gradient(circle at 82% 14%, rgba(var(--accent-2-rgb), 0.12), transparent 50%),
+      radial-gradient(circle at 22% 82%, rgba(var(--accent-3-rgb), 0.1), transparent 55%),
+      linear-gradient(rgba(var(--accent-rgb), 0.04) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(var(--accent-rgb), 0.04) 1px, transparent 1px),
+      var(--bg);
+    background-size: auto, auto, auto, 120px 120px, 120px 120px, auto;
+    background-attachment: fixed;
+  }
+
+  code,
+  pre {
+    font-family: var(--font-body);
+  }
+}

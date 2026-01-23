@@ -216,10 +216,20 @@ watch(
   text-transform: uppercase;
   letter-spacing: 0.12em;
   padding: 2px 8px;
-  border-radius: 999px;
-  border: 1px solid rgba(var(--text-secondary-rgb), 0.3);
+  border-radius: 0;
+  border: 1px solid rgba(var(--text-secondary-rgb), 0.4);
   color: var(--text-secondary);
   background: rgba(var(--text-secondary-rgb), 0.12);
+  clip-path: polygon(
+    var(--hud-cut-xs) 0,
+    calc(100% - var(--hud-cut-xs)) 0,
+    100% var(--hud-cut-xs),
+    100% calc(100% - var(--hud-cut-xs)),
+    calc(100% - var(--hud-cut-xs)) 100%,
+    var(--hud-cut-xs) 100%,
+    0 calc(100% - var(--hud-cut-xs)),
+    0 var(--hud-cut-xs)
+  );
 }
 
 .judge-chip[data-status="pass"] {
@@ -247,10 +257,20 @@ watch(
 }
 
 .judge-check {
-  border-radius: 10px;
-  border: 1px solid var(--line);
+  border-radius: 0;
+  border: 1px solid rgba(var(--line-rgb), 0.4);
   background: rgba(5, 8, 14, 0.6);
   overflow: hidden;
+  clip-path: polygon(
+    var(--hud-cut-xs) 0,
+    calc(100% - var(--hud-cut-xs)) 0,
+    100% var(--hud-cut-xs),
+    100% calc(100% - var(--hud-cut-xs)),
+    calc(100% - var(--hud-cut-xs)) 100%,
+    var(--hud-cut-xs) 100%,
+    0 calc(100% - var(--hud-cut-xs)),
+    0 var(--hud-cut-xs)
+  );
 }
 
 .judge-check summary {
@@ -276,10 +296,20 @@ watch(
 
 .judge-check-status {
   padding: 2px 6px;
-  border-radius: 999px;
-  border: 1px solid var(--line);
+  border-radius: 0;
+  border: 1px solid rgba(var(--line-rgb), 0.4);
   font-size: 0.55rem;
   color: var(--text-soft);
+  clip-path: polygon(
+    var(--hud-cut-xs) 0,
+    calc(100% - var(--hud-cut-xs)) 0,
+    100% var(--hud-cut-xs),
+    100% calc(100% - var(--hud-cut-xs)),
+    calc(100% - var(--hud-cut-xs)) 100%,
+    var(--hud-cut-xs) 100%,
+    0 calc(100% - var(--hud-cut-xs)),
+    0 var(--hud-cut-xs)
+  );
 }
 
 .judge-check-status[data-status="pass"] {
@@ -318,14 +348,24 @@ watch(
   margin: 0;
   font-size: 0.68rem;
   color: var(--text-soft);
-  font-family: "JetBrains Mono", monospace;
+  font-family: var(--font-body);
   white-space: pre-wrap;
   max-height: 140px;
   overflow: auto;
   background: rgba(5, 8, 14, 0.7);
-  border: 1px solid var(--line);
-  border-radius: 8px;
+  border: 1px solid rgba(var(--line-rgb), 0.4);
+  border-radius: 0;
   padding: 6px;
+  clip-path: polygon(
+    var(--hud-cut-xs) 0,
+    calc(100% - var(--hud-cut-xs)) 0,
+    100% var(--hud-cut-xs),
+    100% calc(100% - var(--hud-cut-xs)),
+    calc(100% - var(--hud-cut-xs)) 100%,
+    var(--hud-cut-xs) 100%,
+    0 calc(100% - var(--hud-cut-xs)),
+    0 var(--hud-cut-xs)
+  );
 }
 
 .judge-empty {
