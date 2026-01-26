@@ -152,22 +152,12 @@ function continueRun() {
 
 .activity-card {
   padding: 10px 12px;
-  border-radius: 0;
-  border: 1px solid rgba(var(--line-rgb), 0.45);
-  background: linear-gradient(140deg, rgba(9, 16, 30, 0.9), rgba(7, 12, 22, 0.85));
-  box-shadow: inset 0 0 14px rgba(var(--accent-rgb), 0.08);
+  border-radius: 14px;
+  border: 1px solid rgba(var(--line-rgb), 0.2);
+  background: rgba(var(--line-rgb), 0.06);
+  box-shadow: 0 10px 20px rgba(8, 12, 18, 0.18);
   color: var(--text-secondary);
   font-size: 0.85rem;
-  clip-path: polygon(
-    var(--hud-cut-xs) 0,
-    calc(100% - var(--hud-cut-xs)) 0,
-    100% var(--hud-cut-xs),
-    100% calc(100% - var(--hud-cut-xs)),
-    calc(100% - var(--hud-cut-xs)) 100%,
-    var(--hud-cut-xs) 100%,
-    0 calc(100% - var(--hud-cut-xs)),
-    0 var(--hud-cut-xs)
-  );
 }
 
 .activity-card.muted {
@@ -198,23 +188,12 @@ function continueRun() {
 
 .judge-chip {
   font-size: 0.65rem;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.04em;
   padding: 4px 10px;
-  border-radius: 0;
-  border: 1px solid rgba(var(--text-secondary-rgb), 0.4);
+  border-radius: 999px;
+  border: 1px solid rgba(var(--text-secondary-rgb), 0.3);
   color: var(--text-secondary);
   background: rgba(var(--text-secondary-rgb), 0.12);
-  clip-path: polygon(
-    var(--hud-cut-xs) 0,
-    calc(100% - var(--hud-cut-xs)) 0,
-    100% var(--hud-cut-xs),
-    100% calc(100% - var(--hud-cut-xs)),
-    calc(100% - var(--hud-cut-xs)) 100%,
-    var(--hud-cut-xs) 100%,
-    0 calc(100% - var(--hud-cut-xs)),
-    0 var(--hud-cut-xs)
-  );
 }
 
 .judge-chip[data-status="pass"] {
@@ -237,24 +216,14 @@ function continueRun() {
 
 .judge-card {
   padding: 10px 12px;
-  border-radius: 0;
-  border: 1px solid rgba(var(--line-rgb), 0.45);
-  background: linear-gradient(140deg, rgba(9, 16, 30, 0.9), rgba(7, 12, 22, 0.85));
-  box-shadow: inset 0 0 14px rgba(var(--accent-rgb), 0.08);
+  border-radius: 14px;
+  border: 1px solid rgba(var(--line-rgb), 0.2);
+  background: rgba(var(--line-rgb), 0.06);
+  box-shadow: 0 10px 20px rgba(8, 12, 18, 0.18);
   color: var(--text-secondary);
   font-size: 0.85rem;
   display: grid;
   gap: 8px;
-  clip-path: polygon(
-    var(--hud-cut-xs) 0,
-    calc(100% - var(--hud-cut-xs)) 0,
-    100% var(--hud-cut-xs),
-    100% calc(100% - var(--hud-cut-xs)),
-    calc(100% - var(--hud-cut-xs)) 100%,
-    var(--hud-cut-xs) 100%,
-    0 calc(100% - var(--hud-cut-xs)),
-    0 var(--hud-cut-xs)
-  );
 }
 
 .judge-card.muted {
@@ -274,20 +243,10 @@ function continueRun() {
 }
 
 .judge-check {
-  border-radius: 0;
-  border: 1px solid rgba(var(--line-rgb), 0.4);
-  background: rgba(5, 8, 14, 0.7);
+  border-radius: 12px;
+  border: 1px solid rgba(var(--line-rgb), 0.18);
+  background: rgba(var(--line-rgb), 0.05);
   overflow: hidden;
-  clip-path: polygon(
-    var(--hud-cut-xs) 0,
-    calc(100% - var(--hud-cut-xs)) 0,
-    100% var(--hud-cut-xs),
-    100% calc(100% - var(--hud-cut-xs)),
-    calc(100% - var(--hud-cut-xs)) 100%,
-    var(--hud-cut-xs) 100%,
-    0 calc(100% - var(--hud-cut-xs)),
-    0 var(--hud-cut-xs)
-  );
 }
 
 .judge-check summary {
@@ -297,8 +256,7 @@ function continueRun() {
   gap: 8px;
   padding: 8px 10px;
   font-size: 0.7rem;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.03em;
   color: var(--text-secondary);
   list-style: none;
 }
@@ -313,20 +271,10 @@ function continueRun() {
 
 .judge-check-status {
   padding: 2px 6px;
-  border-radius: 0;
-  border: 1px solid var(--line);
+  border-radius: 999px;
+  border: 1px solid rgba(var(--line-rgb), 0.2);
   font-size: 0.6rem;
   color: var(--text-soft);
-  clip-path: polygon(
-    var(--hud-cut-xs) 0,
-    calc(100% - var(--hud-cut-xs)) 0,
-    100% var(--hud-cut-xs),
-    100% calc(100% - var(--hud-cut-xs)),
-    calc(100% - var(--hud-cut-xs)) 100%,
-    var(--hud-cut-xs) 100%,
-    0 calc(100% - var(--hud-cut-xs)),
-    0 var(--hud-cut-xs)
-  );
 }
 
 .judge-check-status[data-status="pass"] {
@@ -369,9 +317,9 @@ function continueRun() {
   white-space: pre-wrap;
   max-height: 160px;
   overflow: auto;
-  background: rgba(5, 8, 14, 0.75);
-  border: 1px solid rgba(var(--line-rgb), 0.3);
-  border-radius: 0;
+  background: rgba(var(--line-rgb), 0.08);
+  border: 1px solid rgba(var(--line-rgb), 0.2);
+  border-radius: 10px;
   padding: 8px;
 }
 
@@ -386,20 +334,10 @@ function continueRun() {
 }
 
 .loop-details {
-  border: 1px solid rgba(var(--line-rgb), 0.4);
-  border-radius: 0;
+  border: 1px solid rgba(var(--line-rgb), 0.2);
+  border-radius: 12px;
   padding: 8px 10px;
-  background: rgba(8, 12, 20, 0.7);
-  clip-path: polygon(
-    var(--hud-cut-xs) 0,
-    calc(100% - var(--hud-cut-xs)) 0,
-    100% var(--hud-cut-xs),
-    100% calc(100% - var(--hud-cut-xs)),
-    calc(100% - var(--hud-cut-xs)) 100%,
-    var(--hud-cut-xs) 100%,
-    0 calc(100% - var(--hud-cut-xs)),
-    0 var(--hud-cut-xs)
-  );
+  background: rgba(var(--line-rgb), 0.06);
 }
 
 .loop-details summary {

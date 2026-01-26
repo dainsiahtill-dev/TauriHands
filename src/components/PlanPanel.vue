@@ -14,6 +14,8 @@ const dialogError = ref("");
 const showSteps = ref(false);
 const actionError = ref("");
 const showDialog = ref(false);
+const selectedStepId = ref<string | null>(null);
+const stepFilter = ref("all");
 
 const canExecute = computed(() => Boolean(plan.value) && runState.value !== "RUNNING");
 const executeLabel = computed(() => {
@@ -29,9 +31,50 @@ const executeLabel = computed(() => {
   }
 });
 
+const filteredSteps = computed(() => {
+  const allSteps = steps.value;
+  if (stepFilter.value === "all") return allSteps;
+  if (stepFilter.value === "pending") return allSteps.filter(s => s.status === "pending");
+  if (stepFilter.value === "done") return allSteps.filter(s => s.status === "done");
+  if (stepFilter.value === "running") return allSteps.filter(s => s.status === "running");
+  return allSteps;
+});
+
+const stepStats = computed(() => {
+  const total = steps.value.length;
+  const done = steps.value.filter(s => s.status === "done").length;
+  const pending = steps.value.filter(s => s.status === "pending").length;
+  const running = steps.value.filter(s => s.status === "running").length;
+  return { total, done, pending, running };
+});
+
 function toggleStep(id: string, status: string) {
   const next = status === "done" ? "pending" : "done";
   updatePlanStatus(id, next);
+}
+
+function selectStep(id: string) {
+  selectedStepId.value = selectedStepId.value === id ? null : id;
+}
+
+function setStepFilter(filter: string) {
+  stepFilter.value = filter;
+}
+
+function markAllDone() {
+  steps.value.forEach(step => {
+    if (step.status !== "done") {
+      updatePlanStatus(step.id, "done");
+    }
+  });
+}
+
+function resetAllSteps() {
+  steps.value.forEach(step => {
+    if (step.status !== "pending") {
+      updatePlanStatus(step.id, "pending");
+    }
+  });
 }
 
 function parseSteps(input: string) {
@@ -100,29 +143,85 @@ function closeDialog() {
 
 <template>
   <div class="plan-panel">
-    <div class="plan-actions">
-      <button class="btn primary" type="button" @click="openDialog">Generate plan</button>
-      <button class="btn" type="button" :disabled="!canExecute" @click="executePlan">
-        {{ executeLabel }}
-      </button>
+    <div class="plan-header">
+      <div class="plan-stats">
+        <div class="stat-item">
+          <span class="stat-label">Total</span>
+          <span class="stat-value">{{ stepStats.total }}</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-label">Done</span>
+          <span class="stat-value success">{{ stepStats.done }}</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-label">Pending</span>
+          <span class="stat-value pending">{{ stepStats.pending }}</span>
+        </div>
+        <div class="stat-item" v-if="stepStats.running > 0">
+          <span class="stat-label">Running</span>
+          <span class="stat-value running">{{ stepStats.running }}</span>
+        </div>
+      </div>
+      <div class="plan-actions">
+        <button class="btn primary" type="button" @click="openDialog">Generate plan</button>
+        <button class="btn" type="button" :disabled="!canExecute" @click="executePlan">
+          {{ executeLabel }}
+        </button>
+      </div>
     </div>
-    <p v-if="actionError" class="error-text">{{ actionError }}</p>
-    <div v-if="!plan" class="empty">No plan yet. Generate a plan to begin.</div>
+    
+    <div v-if="actionError" class="error-text">{{ actionError }}</div>
+    
+    <div v-if="!plan" class="empty-state">
+      <p class="empty">No plan yet. Generate a plan to begin.</p>
+      <button class="btn primary" type="button" @click="openDialog">Generate plan</button>
+    </div>
     <div v-else class="plan-content">
+      <div class="plan-filters">
+        <button 
+          v-for="filter in ['all', 'pending', 'done', 'running']" 
+          :key="filter"
+          class="filter-btn"
+          :class="{ 'is-active': stepFilter === filter }"
+          @click="setStepFilter(filter)"
+        >
+          {{ filter }} ({{ filter === 'all' ? stepStats.total : (stepStats as any)[filter] }})
+        </button>
+      </div>
+      
+      <div class="plan-bulk-actions">
+        <button class="btn ghost small" @click="markAllDone" :disabled="stepStats.done === stepStats.total">
+          Mark all done
+        </button>
+        <button class="btn ghost small" @click="resetAllSteps" :disabled="stepStats.pending === stepStats.total">
+          Reset all
+        </button>
+      </div>
+      
       <p class="goal">{{ plan.goal }}</p>
       <ul class="step-list">
-        <li v-for="(step, index) in steps" :key="step.id" :data-status="step.status">
-          <div class="step-card">
-            <div class="step-main">
+        <li v-for="(step, index) in filteredSteps" :key="step.id" :data-status="step.status">
+          <div class="step-card" :class="{ 'is-selected': selectedStepId === step.id }">
+            <div class="step-main" @click="selectStep(step.id)">
               <span class="step-index">{{ String(index + 1).padStart(2, "0") }}</span>
               <div class="step-text">
                 <span class="step-title">{{ step.title }}</span>
                 <span class="step-status" :data-status="step.status">{{ step.status }}</span>
               </div>
             </div>
-            <button class="step-toggle" type="button" @click="toggleStep(step.id, step.status)">
-              {{ step.done ? "Done" : "Todo" }}
-            </button>
+            <div class="step-actions">
+              <button class="step-toggle" type="button" @click="toggleStep(step.id, step.status)">
+                {{ step.status === 'done' ? '↺' : '✓' }}
+              </button>
+            </div>
+          </div>
+          <div v-if="selectedStepId === step.id" class="step-details">
+            <div class="step-detail-content">
+              <p><strong>Step ID:</strong> {{ step.id }}</p>
+              <p><strong>Status:</strong> {{ step.status }}</p>
+              <p><strong>Title:</strong> {{ step.title }}</p>
+              <p v-if="(step as any).description"><strong>Description:</strong> {{ (step as any).description }}</p>
+            </div>
           </div>
         </li>
       </ul>
@@ -181,28 +280,107 @@ function closeDialog() {
   min-height: 0;
 }
 
+.plan-header {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.plan-stats {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.stat-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(var(--line-rgb), 0.18);
+  background: rgba(var(--line-rgb), 0.08);
+  min-width: 60px;
+}
+
+.stat-label {
+  font-size: 0.65rem;
+  letter-spacing: 0.04em;
+  color: var(--text-tertiary);
+}
+
+.stat-value {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.stat-value.success {
+  color: var(--status-success);
+}
+
+.stat-value.pending {
+  color: var(--text-secondary);
+}
+
+.stat-value.running {
+  color: var(--accent);
+}
+
 .plan-actions {
   display: flex;
   justify-content: flex-end;
+  gap: 8px;
+}
+
+.plan-filters {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.filter-btn {
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--line-rgb), 0.2);
+  background: rgba(var(--line-rgb), 0.06);
+  color: var(--text-secondary);
+  font-size: 0.65rem;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.filter-btn:hover {
+  border-color: rgba(var(--accent-rgb), 0.4);
+  color: var(--text-primary);
+}
+
+.filter-btn.is-active {
+  border-color: rgba(var(--accent-rgb), 0.6);
+  background: rgba(var(--accent-rgb), 0.15);
+  color: var(--accent);
+}
+
+.plan-bulk-actions {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.btn.small {
+  padding: 4px 8px;
+  font-size: 0.65rem;
 }
 
 .plan-editor {
   display: grid;
   gap: 10px;
   padding: 12px;
-  border-radius: 0;
-  border: 1px solid rgba(var(--line-rgb), 0.4);
-  background: rgba(7, 12, 22, 0.75);
-  clip-path: polygon(
-    var(--hud-cut-sm) 0,
-    calc(100% - var(--hud-cut-sm)) 0,
-    100% var(--hud-cut-sm),
-    100% calc(100% - var(--hud-cut-sm)),
-    calc(100% - var(--hud-cut-sm)) 100%,
-    var(--hud-cut-sm) 100%,
-    0 calc(100% - var(--hud-cut-sm)),
-    0 var(--hud-cut-sm)
-  );
+  border-radius: 14px;
+  border: 1px solid rgba(var(--line-rgb), 0.2);
+  background: rgba(var(--line-rgb), 0.06);
 }
 
 .editor-field {
@@ -210,37 +388,26 @@ function closeDialog() {
   gap: 6px;
   font-size: 0.8rem;
   color: var(--text-secondary);
-  text-transform: uppercase;
-  letter-spacing: 0.14em;
-  font-family: var(--font-display);
+  letter-spacing: 0.02em;
+  font-family: var(--font-body);
 }
 
 .editor-field textarea {
   width: 100%;
-  border-radius: 0;
-  border: 1px solid rgba(var(--line-rgb), 0.45);
+  border-radius: 12px;
+  border: 1px solid rgba(var(--line-rgb), 0.2);
   padding: 10px 12px;
-  background: rgba(4, 10, 20, 0.8);
+  background: rgba(var(--line-rgb), 0.05);
   color: var(--text-primary);
   font-family: var(--font-body);
   font-size: 0.8rem;
   resize: vertical;
-  clip-path: polygon(
-    var(--hud-cut-xs) 0,
-    calc(100% - var(--hud-cut-xs)) 0,
-    100% var(--hud-cut-xs),
-    100% calc(100% - var(--hud-cut-xs)),
-    calc(100% - var(--hud-cut-xs)) 100%,
-    var(--hud-cut-xs) 100%,
-    0 calc(100% - var(--hud-cut-xs)),
-    0 var(--hud-cut-xs)
-  );
 }
 
 .editor-field textarea:focus {
   outline: none;
-  border-color: rgba(var(--accent-rgb), 0.6);
-  box-shadow: 0 0 12px rgba(var(--accent-rgb), 0.2);
+  border-color: rgba(var(--accent-rgb), 0.5);
+  box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.15);
 }
 
 .editor-actions {
@@ -281,23 +448,34 @@ function closeDialog() {
   justify-content: space-between;
   gap: 16px;
   padding: 12px 14px;
-  border-radius: 0;
-  border: 1px solid rgba(var(--accent-rgb), 0.3);
-  background: linear-gradient(135deg, rgba(7, 12, 22, 0.92), rgba(14, 22, 36, 0.9));
-  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.25);
+  border-radius: 14px;
+  border: 1px solid rgba(var(--line-rgb), 0.2);
+  background: rgba(var(--line-rgb), 0.06);
+  box-shadow: 0 10px 20px rgba(8, 12, 18, 0.18);
   color: var(--text-secondary);
   font-size: 0.86rem;
   overflow: hidden;
-  clip-path: polygon(
-    var(--hud-cut-sm) 0,
-    calc(100% - var(--hud-cut-sm)) 0,
-    100% var(--hud-cut-sm),
-    100% calc(100% - var(--hud-cut-sm)),
-    calc(100% - var(--hud-cut-sm)) 100%,
-    var(--hud-cut-sm) 100%,
-    0 calc(100% - var(--hud-cut-sm)),
-    0 var(--hud-cut-sm)
-  );
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.step-card:hover {
+  border-color: rgba(var(--accent-rgb), 0.35);
+  transform: translateY(-1px);
+}
+
+.step-card.is-selected {
+  border-color: rgba(var(--accent-rgb), 0.5);
+  box-shadow: 0 12px 24px rgba(8, 12, 18, 0.22);
+}
+
+.step-list li[data-status="done"] .step-card {
+  border-color: rgba(var(--status-success-rgb), 0.35);
+  background: rgba(var(--status-success-rgb), 0.12);
+}
+
+.step-list li[data-status="done"] .step-card::before {
+  background: linear-gradient(180deg, rgba(var(--status-success-rgb), 0.95), rgba(var(--accent-rgb), 0.2));
 }
 
 .step-card::before {
@@ -306,24 +484,10 @@ function closeDialog() {
   left: 0;
   top: 12px;
   bottom: 12px;
-  width: 3px;
+  width: 2px;
   border-radius: 999px;
-  background: linear-gradient(180deg, rgba(var(--accent-rgb), 0.95), rgba(var(--status-info-rgb), 0.2));
-  opacity: 0.65;
-}
-
-.step-card:hover {
-  border-color: rgba(var(--accent-rgb), 0.35);
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35), 0 0 18px rgba(var(--accent-rgb), 0.15);
-}
-
-.step-list li[data-status="done"] .step-card {
-  border-color: rgba(var(--status-success-rgb), 0.3);
-  background: linear-gradient(135deg, rgba(8, 18, 14, 0.92), rgba(10, 24, 18, 0.9));
-}
-
-.step-list li[data-status="done"] .step-card::before {
-  background: linear-gradient(180deg, rgba(var(--status-success-rgb), 0.95), rgba(var(--accent-rgb), 0.2));
+  background: rgba(var(--accent-rgb), 0.6);
+  opacity: 0.6;
 }
 
 .step-main {
@@ -331,27 +495,46 @@ function closeDialog() {
   align-items: center;
   gap: 12px;
   min-width: 0;
+  flex: 1;
+}
+
+.step-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.step-details {
+  margin-top: 8px;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(var(--line-rgb), 0.18);
+  background: rgba(var(--line-rgb), 0.05);
+  animation: slideDown 0.2s ease;
+}
+
+.step-detail-content {
+  display: grid;
+  gap: 8px;
+  font-size: 0.8rem;
+}
+
+.step-detail-content p {
+  margin: 0;
+  color: var(--text-secondary);
+}
+
+.step-detail-content strong {
+  color: var(--text-primary);
 }
 
 .step-index {
-  font-size: 0.75rem;
-  letter-spacing: 0.2em;
-  color: rgba(var(--accent-rgb), 0.7);
-  text-transform: uppercase;
-  padding: 6px 8px;
-  border-radius: 0;
-  background: rgba(9, 14, 22, 0.85);
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  color: var(--accent);
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(var(--accent-rgb), 0.12);
   border: 1px solid rgba(var(--accent-rgb), 0.3);
-  clip-path: polygon(
-    var(--hud-cut-xs) 0,
-    calc(100% - var(--hud-cut-xs)) 0,
-    100% var(--hud-cut-xs),
-    100% calc(100% - var(--hud-cut-xs)),
-    calc(100% - var(--hud-cut-xs)) 100%,
-    var(--hud-cut-xs) 100%,
-    0 calc(100% - var(--hud-cut-xs)),
-    0 var(--hud-cut-xs)
-  );
 }
 
 .step-text {
@@ -361,25 +544,19 @@ function closeDialog() {
 }
 
 .step-toggle {
-  padding: 4px 8px;
-  border-radius: 0;
-  border: 1px solid var(--line);
-  background: rgba(var(--accent-rgb), 0.08);
-  color: var(--accent);
-  font-size: 0.7rem;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--line-rgb), 0.2);
+  background: rgba(var(--line-rgb), 0.06);
+  color: var(--text-secondary);
+  font-size: 0.8rem;
   cursor: pointer;
-  clip-path: polygon(
-    var(--hud-cut-xs) 0,
-    calc(100% - var(--hud-cut-xs)) 0,
-    100% var(--hud-cut-xs),
-    100% calc(100% - var(--hud-cut-xs)),
-    calc(100% - var(--hud-cut-xs)) 100%,
-    var(--hud-cut-xs) 100%,
-    0 calc(100% - var(--hud-cut-xs)),
-    0 var(--hud-cut-xs)
-  );
+  transition: all 0.2s ease;
+}
+
+.step-toggle:hover {
+  background: rgba(var(--accent-rgb), 0.16);
+  color: var(--accent);
 }
 
 .step-title {
@@ -392,9 +569,8 @@ function closeDialog() {
 }
 
 .step-status {
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  font-size: 0.65rem;
+  letter-spacing: 0.03em;
+  font-size: 0.7rem;
   color: var(--text-secondary);
   overflow-wrap: anywhere;
   word-break: break-word;
@@ -417,6 +593,18 @@ function closeDialog() {
   margin: 0;
 }
 
+.empty-state {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px dashed rgba(var(--line-rgb), 0.3);
+  background: rgba(var(--line-rgb), 0.06);
+}
+
 .error-text {
   margin: 0;
   color: var(--status-error);
@@ -428,7 +616,7 @@ function closeDialog() {
   inset: 0;
   display: grid;
   place-items: center;
-  background: linear-gradient(135deg, rgba(2, 6, 16, 0.82), rgba(2, 10, 20, 0.6));
+  background: rgba(5, 8, 14, 0.6);
   backdrop-filter: blur(6px);
   z-index: 40;
 }
@@ -436,25 +624,14 @@ function closeDialog() {
 .plan-dialog__card {
   width: min(640px, 92vw);
   padding: 20px 22px;
-  border-radius: 0;
-  border: 1px solid rgba(var(--accent-rgb), 0.5);
-  background: var(--panel-core-strong);
+  border-radius: 18px;
+  border: 1px solid rgba(var(--line-rgb), 0.22);
+  background: var(--surface, rgba(20, 24, 30, 0.9));
   box-shadow:
-    0 0 26px rgba(var(--accent-rgb), 0.2),
-    0 28px 60px rgba(0, 0, 0, 0.55),
-    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    0 24px 60px rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
   display: grid;
   gap: 16px;
-  clip-path: polygon(
-    var(--hud-cut) 0,
-    calc(100% - var(--hud-cut)) 0,
-    100% var(--hud-cut),
-    100% calc(100% - var(--hud-cut)),
-    calc(100% - var(--hud-cut)) 100%,
-    var(--hud-cut) 100%,
-    0 calc(100% - var(--hud-cut)),
-    0 var(--hud-cut)
-  );
 }
 
 .plan-dialog__header {
@@ -467,8 +644,7 @@ function closeDialog() {
 .plan-dialog__header h3 {
   margin: 4px 0 0;
   font-size: 1rem;
-  text-transform: uppercase;
-  letter-spacing: 0.2em;
+  letter-spacing: 0.04em;
   font-family: var(--font-display);
   color: var(--text-primary);
 }
@@ -485,5 +661,3 @@ function closeDialog() {
   flex-wrap: wrap;
 }
 </style>
-
-

@@ -12,17 +12,25 @@
             <p class="brand-subtitle">AI Development Agent</p>
           </div>
         </div>
+        <div class="workspace-chip">
+          <span class="chip-label">Workspace</span>
+          <span class="chip-value">{{ workspaceName }}</span>
+        </div>
       </div>
 
       <div class="header-center">
-        <el-tag type="success" effect="dark">Online</el-tag>
-        <el-text type="info" size="small">{{ workspaceName }}</el-text>
+        <div class="status-pill" :data-status="agentState">
+          <span class="status-dot"></span>
+          <span class="status-text">{{ agentState }}</span>
+        </div>
+        <div class="meta-inline">Run <strong>{{ shortRunId }}</strong></div>
+        <div class="meta-inline">Budget <strong>{{ budgetLabel }}</strong></div>
       </div>
 
       <div class="header-right">
-        <el-button type="primary" :icon="Search" circle />
+        <el-button type="primary" :icon="Search" circle @click="handleSearch" />
         <ThemeToggle />
-        <el-button :icon="Setting" circle />
+        <el-button :icon="Setting" circle @click="handleSettings" />
       </div>
     </el-header>
 
@@ -34,9 +42,6 @@
           :default-active="activeMenu"
           :collapse="isCollapse"
           :unique-opened="true"
-          background-color="#1a1a1a"
-          text-color="#a3a3a3"
-          active-text-color="#409eff"
           class="sidebar-menu"
         >
           <el-menu-item
@@ -59,44 +64,52 @@
       </el-main>
 
       <!-- Right Panel -->
-      <el-aside v-if="showRightPanel" :width="280" class="right-panel">
+      <el-aside v-if="showRightPanel" :width="300" class="right-panel">
         <el-card class="status-card" shadow="never">
-          <template #header>
-            <div class="card-header">
-              <span>Agent Status</span>
-              <el-tag :type="getStatusType(agentState)" size="small">
-                {{ agentState }}
-              </el-tag>
+          <div class="status-header">
+            <div>
+              <p class="card-eyebrow">Run Control</p>
+              <h3 class="card-title">Agent status</h3>
             </div>
-          </template>
-          
-          <el-descriptions :column="1" size="small">
-            <el-descriptions-item label="Workspace">
-              <el-text type="info">{{ workspaceName }}</el-text>
-            </el-descriptions-item>
-            <el-descriptions-item label="Run ID">
-              <el-text type="info">{{ shortRunId }}</el-text>
-            </el-descriptions-item>
-            <el-descriptions-item label="Budget">
-              <el-progress 
-                :percentage="budgetPercent" 
-                :status="budgetPercent > 80 ? 'exception' : 'success'"
-                :show-text="false"
-                :stroke-width="4"
-              />
-              <el-text type="info" size="small">{{ budgetLabel }}</el-text>
-            </el-descriptions-item>
-            <el-descriptions-item label="Power">
-              <el-text type="primary">{{ powerPercent }}%</el-text>
-            </el-descriptions-item>
-          </el-descriptions>
+            <el-tag :type="getStatusType(agentState)" size="small">
+              {{ agentState }}
+            </el-tag>
+          </div>
+
+          <div class="status-grid">
+            <div class="status-row">
+              <span>Workspace</span>
+              <strong>{{ workspaceName }}</strong>
+            </div>
+            <div class="status-row">
+              <span>Run ID</span>
+              <strong>{{ shortRunId }}</strong>
+            </div>
+            <div class="status-row">
+              <span>Budget</span>
+              <strong>{{ budgetLabel }}</strong>
+            </div>
+            <div class="status-row">
+              <span>Power</span>
+              <strong>{{ powerPercent }}%</strong>
+            </div>
+          </div>
+
+          <div class="status-progress">
+            <el-progress
+              :percentage="budgetPercent"
+              :status="budgetPercent > 80 ? 'exception' : 'success'"
+              :show-text="false"
+              :stroke-width="6"
+            />
+          </div>
 
           <div class="action-buttons">
-            <el-button type="primary" @click="handleContinue" :loading="isLoading">
+            <el-button type="primary" @click="handleContinue" :loading="isLoading" :disabled="!canContinue">
               <el-icon><VideoPlay /></el-icon>
               Continue
             </el-button>
-            <el-button @click="handlePause">
+            <el-button @click="handlePause" :disabled="!canPause">
               <el-icon><VideoPause /></el-icon>
               Pause
             </el-button>
@@ -108,10 +121,14 @@
         </el-card>
 
         <el-card class="tools-card" shadow="never">
-          <template #header>
-            <span>Tool Status</span>
-          </template>
-          
+          <div class="status-header">
+            <div>
+              <p class="card-eyebrow">Tooling</p>
+              <h3 class="card-title">Tool status</h3>
+            </div>
+            <el-tag type="info" size="small">{{ toolStats.running }} running</el-tag>
+          </div>
+
           <div v-if="activeTool" class="active-tool">
             <el-tag type="primary">{{ activeTool.tool }}</el-tag>
             <el-text type="info" size="small">{{ activeTool.detail }}</el-text>
@@ -120,14 +137,24 @@
             <el-text type="info">No active tools</el-text>
           </div>
 
-          <el-divider />
-
-          <el-statistics :columns="2" size="small">
-            <el-statistic title="Total" :value="toolStats.total" />
-            <el-statistic title="Success" :value="toolStats.ok" />
-            <el-statistic title="Running" :value="toolStats.running" />
-            <el-statistic title="Errors" :value="toolStats.error" />
-          </el-statistics>
+          <div class="tool-stats">
+            <div class="tool-stat">
+              <span>Total</span>
+              <strong>{{ toolStats.total }}</strong>
+            </div>
+            <div class="tool-stat">
+              <span>Success</span>
+              <strong>{{ toolStats.ok }}</strong>
+            </div>
+            <div class="tool-stat">
+              <span>Running</span>
+              <strong>{{ toolStats.running }}</strong>
+            </div>
+            <div class="tool-stat">
+              <span>Errors</span>
+              <strong>{{ toolStats.error }}</strong>
+            </div>
+          </div>
         </el-card>
       </el-aside>
     </el-container>
@@ -135,7 +162,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { agentStore } from '../agents/orchestrator'
 import ThemeToggle from '../components/ThemeToggle-Simple.vue'
@@ -143,6 +170,8 @@ import {
   Lightning,
   Search,
   Setting,
+  Tools,
+  Lock,
   Monitor,
   Document,
   Connection,
@@ -157,7 +186,7 @@ import {
 
 const router = useRouter()
 const route = useRoute()
-const { state, initKernelStore, userInput, stop } = agentStore
+const { state, initKernelStore, pause, resume, continueRun, stop } = agentStore
 
 // State
 const isCollapse = ref(false)
@@ -167,6 +196,11 @@ const isLoading = ref(false)
 // Computed
 const run = computed(() => state.run)
 const agentState = computed(() => run.value?.agentState ?? "IDLE")
+const isAwaiting = computed(() => agentState.value === "AWAITING_USER")
+const isPaused = computed(() => agentState.value === "PAUSED")
+const isRunning = computed(() => agentState.value === "RUNNING")
+const canContinue = computed(() => isAwaiting.value || isPaused.value)
+const canPause = computed(() => isRunning.value)
 const needsAttention = computed(() => agentState.value === "AWAITING_USER")
 const runId = computed(() => run.value?.runId ?? "-")
 const shortRunId = computed(() => (runId.value ? runId.value.slice(0, 8) : "-"))
@@ -204,6 +238,17 @@ const powerPercent = ref(85)
 const sidebarWidth = computed(() => isCollapse.value ? '64px' : '200px')
 const activeMenu = computed(() => route.name as string || 'console')
 
+const cockpitRoutes = new Set([
+  "console",
+  "mission",
+  "plan",
+  "loop",
+  "terminal",
+  "diff",
+  "git",
+  "timeline",
+])
+
 // Menu items
 const menuItems = [
   { id: 'console', label: 'Console', icon: Monitor },
@@ -213,12 +258,27 @@ const menuItems = [
   { id: 'terminal', label: 'Terminal', icon: Platform },
   { id: 'diff', label: 'Diff', icon: Files },
   { id: 'git', label: 'Git', icon: Link },
-  { id: 'timeline', label: 'Timeline', icon: Clock }
+  { id: 'timeline', label: 'Timeline', icon: Clock },
+  { id: 'llm', label: 'Settings', icon: Setting },
+  { id: 'tools', label: 'Tools', icon: Tools },
+  { id: 'security', label: 'Security', icon: Lock }
 ]
 
 // Methods
 const navigateTo = (id: string) => {
   router.push({ name: id })
+}
+
+const handleSearch = async () => {
+  if (!cockpitRoutes.has(route.name as string)) {
+    await router.push({ name: "console" })
+  }
+  await nextTick()
+  window.dispatchEvent(new Event("focus-chat-input"))
+}
+
+const handleSettings = () => {
+  router.push({ name: "llm" })
 }
 
 const getStatusType = (state: string) => {
@@ -231,17 +291,22 @@ const getStatusType = (state: string) => {
 }
 
 const handleContinue = async () => {
+  if (!canContinue.value) return
   isLoading.value = true
   try {
-    // Continue logic here
-    await new Promise(resolve => setTimeout(resolve, 1000))
+    if (isPaused.value) {
+      await resume()
+    } else {
+      await continueRun()
+    }
   } finally {
     isLoading.value = false
   }
 }
 
-const handlePause = () => {
-  // Pause logic here
+const handlePause = async () => {
+  if (!canPause.value) return
+  await pause()
 }
 
 const handleStop = () => {
@@ -257,16 +322,24 @@ onMounted(() => {
 .app-container {
   height: 100vh;
   background-color: var(--el-bg-color);
+  color: var(--text-primary);
 }
 
 .app-header {
-  background-color: var(--el-bg-color-page);
-  border-bottom: 1px solid var(--el-border-color);
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 16px;
   padding: 0 20px;
-  height: 60px;
+  height: 68px;
+  background: linear-gradient(
+    135deg,
+    rgba(var(--bg-rgb), 0.92),
+    rgba(var(--accent-rgb), 0.14),
+    rgba(var(--accent-3-rgb), 0.08)
+  );
+  border-bottom: 1px solid rgba(var(--line-rgb), 0.18);
+  box-shadow: 0 10px 24px rgba(5, 10, 18, 0.22);
 }
 
 .header-left,
@@ -277,6 +350,22 @@ onMounted(() => {
   gap: 16px;
 }
 
+.header-left {
+  flex: 1;
+  min-width: 0;
+}
+
+.header-center {
+  flex: 1;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.header-right {
+  flex: 0 0 auto;
+  justify-content: flex-end;
+}
+
 .brand-section {
   display: flex;
   align-items: center;
@@ -284,7 +373,9 @@ onMounted(() => {
 }
 
 .brand-avatar {
-  background: linear-gradient(135deg, #409eff, #67c23a);
+  background: linear-gradient(135deg, rgba(var(--accent-rgb), 0.55), rgba(var(--accent-2-rgb), 0.35));
+  border: 1px solid rgba(var(--accent-rgb), 0.4);
+  box-shadow: 0 10px 18px rgba(var(--accent-rgb), 0.22);
 }
 
 .brand-text {
@@ -294,30 +385,179 @@ onMounted(() => {
 
 .brand-title {
   margin: 0;
-  font-size: 18px;
+  font-size: 1rem;
   font-weight: 600;
+  letter-spacing: 0.02em;
   color: var(--el-text-color-primary);
 }
 
 .brand-subtitle {
   margin: 0;
-  font-size: 12px;
+  font-size: 0.7rem;
   color: var(--el-text-color-secondary);
 }
 
+.workspace-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--line-rgb), 0.2);
+  background: rgba(var(--line-rgb), 0.08);
+  color: var(--text-secondary);
+  font-size: 0.7rem;
+}
+
+.chip-label {
+  font-size: 0.6rem;
+  letter-spacing: 0.04em;
+  color: var(--text-tertiary);
+}
+
+.chip-value {
+  font-weight: 600;
+  color: var(--text-primary);
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--line-rgb), 0.2);
+  background: rgba(var(--line-rgb), 0.08);
+  color: var(--text-secondary);
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: none;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--status-info);
+  box-shadow: 0 0 10px rgba(var(--status-info-rgb), 0.5);
+}
+
+.status-text {
+  letter-spacing: 0.02em;
+}
+
+.status-pill[data-status="RUNNING"] {
+  border-color: rgba(var(--status-success-rgb), 0.4);
+  background: rgba(var(--status-success-rgb), 0.1);
+  color: var(--status-success);
+}
+
+.status-pill[data-status="RUNNING"] .status-dot {
+  background: var(--status-success);
+  box-shadow: 0 0 10px rgba(var(--status-success-rgb), 0.5);
+}
+
+.status-pill[data-status="AWAITING_USER"] {
+  border-color: rgba(var(--status-warning-rgb), 0.4);
+  background: rgba(var(--status-warning-rgb), 0.1);
+  color: var(--status-warning);
+}
+
+.status-pill[data-status="AWAITING_USER"] .status-dot {
+  background: var(--status-warning);
+  box-shadow: 0 0 10px rgba(var(--status-warning-rgb), 0.5);
+}
+
+.status-pill[data-status="ERROR"] {
+  border-color: rgba(var(--status-error-rgb), 0.4);
+  background: rgba(var(--status-error-rgb), 0.12);
+  color: var(--status-error);
+}
+
+.status-pill[data-status="ERROR"] .status-dot {
+  background: var(--status-error);
+  box-shadow: 0 0 10px rgba(var(--status-error-rgb), 0.5);
+}
+
+.status-pill[data-status="PAUSED"] {
+  border-color: rgba(var(--line-rgb), 0.28);
+  background: rgba(var(--line-rgb), 0.14);
+  color: var(--text-secondary);
+}
+
+.meta-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--line-rgb), 0.18);
+  background: rgba(var(--line-rgb), 0.06);
+  font-size: 0.68rem;
+  color: var(--text-tertiary);
+}
+
+.meta-inline strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.header-right :deep(.el-button) {
+  border-radius: 12px;
+  background: rgba(var(--line-rgb), 0.1);
+  border: 1px solid rgba(var(--line-rgb), 0.2);
+  color: var(--text-primary);
+}
+
+.header-right :deep(.el-button:hover) {
+  border-color: rgba(var(--accent-rgb), 0.35);
+  color: var(--text-primary);
+}
+
+.header-right :deep(.el-button--primary) {
+  background: rgba(var(--accent-rgb), 0.18);
+  border-color: rgba(var(--accent-rgb), 0.35);
+  box-shadow: 0 10px 18px rgba(var(--accent-rgb), 0.2);
+}
+
 .main-container {
-  height: calc(100vh - 60px);
+  height: calc(100vh - 68px);
 }
 
 .app-sidebar {
-  background-color: var(--el-bg-color-page);
-  border-right: 1px solid var(--el-border-color);
+  background: var(--el-bg-color-page);
+  border-right: 1px solid rgba(var(--line-rgb), 0.16);
   transition: width 0.3s;
 }
 
 .sidebar-menu {
   border: none;
   height: 100%;
+  background: transparent;
+}
+
+.sidebar-menu :deep(.el-menu-item) {
+  margin: 6px 8px;
+  border-radius: 12px;
+  height: 44px;
+  line-height: 44px;
+  color: var(--text-tertiary);
+  transition: all 0.2s ease;
+}
+
+.sidebar-menu :deep(.el-menu-item:hover) {
+  background: rgba(var(--line-rgb), 0.14);
+  color: var(--text-primary);
+}
+
+.sidebar-menu :deep(.el-menu-item.is-active) {
+  background: rgba(var(--accent-rgb), 0.18);
+  color: var(--text-primary);
+  box-shadow: 0 10px 18px rgba(var(--accent-rgb), 0.14);
 }
 
 .app-main {
@@ -333,63 +573,135 @@ onMounted(() => {
 
 .right-panel {
   background-color: var(--el-bg-color-page);
-  border-left: 1px solid var(--el-border-color);
-  padding: 20px;
+  border-left: 1px solid rgba(var(--line-rgb), 0.16);
+  padding: 20px 18px;
   overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
 
 .status-card,
 .tools-card {
-  margin-bottom: 20px;
+  margin-bottom: 0;
+  border-radius: 16px;
+  border: 1px solid rgba(var(--line-rgb), 0.18);
+  background: var(--surface, rgba(20, 24, 30, 0.75));
+  box-shadow: 0 12px 24px rgba(5, 10, 18, 0.2);
 }
 
-.card-header {
+.status-card :deep(.el-card__body),
+.tools-card :deep(.el-card__body) {
+  padding: 16px;
   display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.status-header {
+  display: flex;
+  align-items: flex-start;
   justify-content: space-between;
-  align-items: center;
+  gap: 12px;
+}
+
+.card-eyebrow {
+  margin: 0 0 4px;
+  font-size: 0.65rem;
+  color: var(--text-tertiary);
+  letter-spacing: 0.04em;
+}
+
+.card-title {
+  margin: 0;
+  font-size: 1rem;
+  color: var(--text-primary);
   font-weight: 600;
 }
 
-.action-buttons {
-  display: flex;
-  flex-direction: column;
+.status-grid {
+  display: grid;
   gap: 8px;
-  margin-top: 16px;
+}
+
+.status-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(var(--line-rgb), 0.16);
+  background: rgba(var(--line-rgb), 0.08);
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+}
+
+.status-row strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.status-progress {
+  margin-top: 4px;
+}
+
+.status-progress :deep(.el-progress-bar__outer) {
+  background: rgba(var(--line-rgb), 0.18);
+}
+
+.status-progress :deep(.el-progress-bar__inner) {
+  background: linear-gradient(90deg, rgba(var(--accent-rgb), 0.75), rgba(var(--accent-2-rgb), 0.75));
+}
+
+.action-buttons {
+  display: grid;
+  gap: 10px;
+}
+
+.action-buttons :deep(.el-button) {
+  justify-content: center;
+  font-weight: 600;
 }
 
 .active-tool {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(var(--line-rgb), 0.16);
+  background: rgba(var(--line-rgb), 0.08);
 }
 
 .no-tool {
   text-align: center;
-  padding: 20px 0;
+  padding: 14px 0;
+  color: var(--text-tertiary);
 }
 
-/* Dark theme adjustments */
-:root.dark {
-  --el-bg-color: #141414;
-  --el-bg-color-page: #0a0a0a;
-  --el-bg-color-overlay: #1d1e1f;
-  --el-text-color-primary: #e5eaf3;
-  --el-text-color-regular: #cfd3dc;
-  --el-text-color-secondary: #a3a6ad;
-  --el-text-color-placeholder: #8d9095;
-  --el-text-color-disabled: #6c6e72;
-  --el-border-color: #4c4d4f;
-  --el-border-color-light: #414243;
-  --el-border-color-lighter: #363637;
-  --el-border-color-extra-light: #2b2b2c;
-  --el-border-color-dark: #58585b;
-  --el-border-color-darker: #636466;
-  --el-fill-color: #47494c;
-  --el-fill-color-light: #36383a;
-  --el-fill-color-lighter: #2a2b2d;
-  --el-fill-color-extra-light: #1f1f20;
-  --el-fill-color-dark: #545459;
-  --el-fill-color-darker: #616166;
-  --el-fill-color-blank: transparent;
+.tool-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
 }
+
+.tool-stat {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(var(--line-rgb), 0.14);
+  background: rgba(var(--line-rgb), 0.06);
+  font-size: 0.7rem;
+  color: var(--text-secondary);
+}
+
+.tool-stat strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
 </style>

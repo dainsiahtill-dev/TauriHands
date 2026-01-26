@@ -63,21 +63,11 @@ function toggleDetail(item: StatusItem) {
   gap: 6px;
   align-items: center;
   padding: 6px 10px;
-  border-radius: 0;
-  border: 1px solid rgba(var(--line-rgb), 0.4);
-  background: rgba(10, 16, 26, 0.8);
+  border-radius: 999px;
+  border: 1px solid rgba(var(--line-rgb), 0.18);
+  background: rgba(var(--line-rgb), 0.08);
   color: var(--text-secondary);
   font-size: 0.72rem;
-  clip-path: polygon(
-    var(--hud-cut-xs) 0,
-    calc(100% - var(--hud-cut-xs)) 0,
-    100% var(--hud-cut-xs),
-    100% calc(100% - var(--hud-cut-xs)),
-    calc(100% - var(--hud-cut-xs)) 100%,
-    var(--hud-cut-xs) 100%,
-    0 calc(100% - var(--hud-cut-xs)),
-    0 var(--hud-cut-xs)
-  );
 }
 
 .pill strong {
@@ -105,27 +95,16 @@ function toggleDetail(item: StatusItem) {
 .pill-detail {
   margin-top: 8px;
   padding: 10px 12px;
-  border-radius: 0;
+  border-radius: 12px;
   border: 1px solid rgba(var(--status-warning-rgb), 0.45);
   background: rgba(var(--status-warning-rgb), 0.1);
   display: grid;
   gap: 6px;
-  clip-path: polygon(
-    var(--hud-cut-xs) 0,
-    calc(100% - var(--hud-cut-xs)) 0,
-    100% var(--hud-cut-xs),
-    100% calc(100% - var(--hud-cut-xs)),
-    calc(100% - var(--hud-cut-xs)) 100%,
-    var(--hud-cut-xs) 100%,
-    0 calc(100% - var(--hud-cut-xs)),
-    0 var(--hud-cut-xs)
-  );
 }
 
 .pill-detail__label {
   font-size: 0.65rem;
-  text-transform: uppercase;
-  letter-spacing: 0.18em;
+  letter-spacing: 0.06em;
   color: var(--status-warning);
   font-family: var(--font-display);
 }

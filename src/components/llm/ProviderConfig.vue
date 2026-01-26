@@ -299,7 +299,7 @@ input {
 .model-chip {
   border-radius: 0;
   border: 1px solid rgba(var(--line-rgb), 0.45);
-  background: rgba(7, 12, 22, 0.8);
+  background: rgba(var(--line-rgb), 0.08);
   color: var(--text-soft);
   padding: 6px 10px;
   font-size: 0.7rem;

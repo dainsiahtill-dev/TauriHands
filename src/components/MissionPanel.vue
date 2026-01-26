@@ -29,7 +29,7 @@ const pills = computed(() => [
   {
     label: "State",
     value: agentState.value,
-    tone: agentState.value === "ERROR" ? "error" : "info",
+    tone: agentState.value === "ERROR" ? "error" as const : "info" as const,
     detail: errorDetail.value,
   },
   { label: "Run", value: runId.value.slice(0, 8) || "-" },
@@ -49,6 +49,8 @@ const completionText = computed({
 const saveStatus = ref("");
 const judgeText = ref("[]");
 const judgeStatus = ref("");
+const showAdvanced = ref(false);
+const showJudgeRules = ref(false);
 
 async function loadJudgeRules(taskId: string) {
   try {
@@ -101,6 +103,29 @@ async function saveJudgeRules() {
   }
 }
 
+function toggleAdvanced() {
+  showAdvanced.value = !showAdvanced.value;
+}
+
+function toggleJudgeRules() {
+  showJudgeRules.value = !showJudgeRules.value;
+}
+
+function quickStartMission() {
+  // Quick start logic - auto-save and start
+  saveConfig().then(() => {
+    // Trigger start via agent store
+    const { start } = agentStore;
+    start();
+  });
+}
+
+function quickResetMission() {
+  // Reset mission state
+  Object.assign(task, defaultTaskConfig());
+  saveStatus.value = "Reset";
+}
+
 watch(
   () => task.taskId,
   (value) => {
@@ -116,6 +141,25 @@ watch(
     <div class="section">
       <p class="eyebrow">Mission status</p>
       <StatusPills :items="pills" />
+      <div class="quick-actions">
+        <button 
+          class="btn primary quick-btn" 
+          type="button" 
+          @click="quickStartMission"
+          :disabled="agentState === 'RUNNING'"
+        >
+          <span class="btn-icon">▶</span>
+          Quick Start
+        </button>
+        <button 
+          class="btn ghost quick-btn" 
+          type="button" 
+          @click="quickResetMission"
+        >
+          <span class="btn-icon">↺</span>
+          Reset
+        </button>
+      </div>
     </div>
 
     <div class="section">
@@ -127,7 +171,11 @@ watch(
     </div>
 
     <div class="section">
-      <p class="eyebrow">Task config</p>
+      <div class="section-header" @click="toggleAdvanced">
+        <p class="eyebrow">Task config</p>
+        <span class="toggle-icon" :class="{ 'is-open': showAdvanced }">▼</span>
+      </div>
+      <div v-show="showAdvanced" class="collapsible-content">
       <div class="form-grid">
         <label>
           Task ID
@@ -196,15 +244,21 @@ watch(
         <span class="status" v-if="saveStatus">{{ saveStatus }}</span>
         <span class="error" v-else-if="missionState.error">{{ missionState.error }}</span>
       </div>
+      </div>
     </div>
 
     <div class="section">
-      <p class="eyebrow">Judge rules (JSON)</p>
-      <textarea v-model="judgeText" class="field" rows="6"></textarea>
-      <div class="form-actions">
-        <button class="btn" type="button" @click="saveJudgeRules">Save rules</button>
-        <span class="status" v-if="judgeStatus === 'Saved'">Saved</span>
-        <span class="error" v-else-if="judgeStatus">{{ judgeStatus }}</span>
+      <div class="section-header" @click="toggleJudgeRules">
+        <p class="eyebrow">Judge rules (JSON)</p>
+        <span class="toggle-icon" :class="{ 'is-open': showJudgeRules }">▼</span>
+      </div>
+      <div v-show="showJudgeRules" class="collapsible-content">
+        <textarea v-model="judgeText" class="field" rows="6"></textarea>
+        <div class="form-actions">
+          <button class="btn" type="button" @click="saveJudgeRules">Save rules</button>
+          <span class="status" v-if="judgeStatus === 'Saved'">Saved</span>
+          <span class="error" v-else-if="judgeStatus">{{ judgeStatus }}</span>
+        </div>
       </div>
     </div>
 
@@ -235,6 +289,66 @@ watch(
   gap: 8px;
 }
 
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  user-select: none;
+  padding: 4px 0;
+  border-radius: 0;
+  transition: all 0.2s ease;
+}
+
+.section-header:hover {
+  background: rgba(var(--accent-rgb), 0.05);
+}
+
+.toggle-icon {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  transition: transform 0.2s ease;
+}
+
+.toggle-icon.is-open {
+  transform: rotate(180deg);
+}
+
+.collapsible-content {
+  display: grid;
+  gap: 10px;
+  animation: slideDown 0.2s ease;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.quick-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.quick-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.7rem;
+  padding: 6px 10px;
+}
+
+.btn-icon {
+  font-size: 0.8rem;
+}
+
 .path {
   margin: 0;
   font-size: 0.85rem;
@@ -242,10 +356,10 @@ watch(
 }
 
 .workspace-block {
-  border-radius: 0;
+  border-radius: 12px;
   overflow: hidden;
-  border: 1px solid var(--line);
-  box-shadow: inset 0 0 16px rgba(var(--accent-rgb), 0.08);
+  border: 1px solid rgba(var(--line-rgb), 0.18);
+  background: rgba(var(--line-rgb), 0.04);
 }
 
 .form-grid {
@@ -258,37 +372,66 @@ watch(
   gap: 6px;
   font-size: 0.75rem;
   color: var(--text-secondary);
-  text-transform: uppercase;
-  letter-spacing: 0.14em;
-  font-family: var(--font-display);
+  letter-spacing: 0.02em;
+  font-family: var(--font-body);
 }
 
 .field {
   padding: 8px 10px;
-  border-radius: 0;
-  border: 1px solid rgba(var(--line-rgb), 0.45);
-  background: rgba(6, 12, 22, 0.8);
-  box-shadow: inset 0 0 12px rgba(var(--accent-rgb), 0.08);
+  border-radius: 12px;
+  border: 1px solid rgba(var(--line-rgb), 0.2);
+  background: rgba(var(--line-rgb), 0.05);
   color: var(--text-primary);
   font-size: 0.85rem;
-  clip-path: polygon(
-    var(--hud-cut-xs) 0,
-    calc(100% - var(--hud-cut-xs)) 0,
-    100% var(--hud-cut-xs),
-    100% calc(100% - var(--hud-cut-xs)),
-    calc(100% - var(--hud-cut-xs)) 100%,
-    var(--hud-cut-xs) 100%,
-    0 calc(100% - var(--hud-cut-xs)),
-    0 var(--hud-cut-xs)
-  );
+  transition: all 0.2s ease;
 }
 
 .field:focus {
   outline: none;
-  border-color: rgba(var(--accent-rgb), 0.6);
-  box-shadow:
-    inset 0 0 12px rgba(var(--accent-rgb), 0.12),
-    0 0 12px rgba(var(--accent-rgb), 0.2);
+  border-color: rgba(var(--accent-rgb), 0.5);
+  box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.15);
+  background: rgba(var(--line-rgb), 0.06);
+}
+
+.field:hover {
+  border-color: rgba(var(--accent-rgb), 0.4);
+}
+
+.btn {
+  border-radius: 12px;
+  border: 1px solid rgba(var(--line-rgb), 0.2);
+  padding: 8px 12px;
+  font-size: 0.75rem;
+  background: rgba(var(--line-rgb), 0.08);
+  color: var(--text-primary);
+  cursor: pointer;
+  letter-spacing: 0.02em;
+  transition: all 0.2s ease;
+}
+
+.btn:hover {
+  border-color: rgba(var(--accent-rgb), 0.4);
+  box-shadow: 0 8px 16px rgba(var(--accent-rgb), 0.12);
+}
+
+.btn.primary {
+  background: rgba(var(--accent-rgb), 0.2);
+  border-color: rgba(var(--accent-rgb), 0.4);
+}
+
+.btn.primary:hover {
+  background: rgba(var(--accent-rgb), 0.28);
+}
+
+.btn.ghost {
+  background: transparent;
+  border-color: rgba(var(--line-rgb), 0.18);
+  color: var(--text-secondary);
+}
+
+.btn.ghost:hover {
+  background: rgba(var(--line-rgb), 0.08);
+  color: var(--text-primary);
 }
 
 .form-actions {
@@ -298,45 +441,23 @@ watch(
 }
 
 .status {
-  font-size: 0.6rem;
-  text-transform: uppercase;
-  letter-spacing: 0.16em;
-  padding: 4px 8px;
+  font-size: 0.65rem;
+  letter-spacing: 0.04em;
+  padding: 4px 10px;
   color: var(--status-success);
-  border: 1px solid rgba(var(--status-success-rgb), 0.5);
+  border: 1px solid rgba(var(--status-success-rgb), 0.4);
   background: rgba(var(--status-success-rgb), 0.12);
-  font-family: var(--font-display);
-  clip-path: polygon(
-    var(--hud-cut-xs) 0,
-    calc(100% - var(--hud-cut-xs)) 0,
-    100% var(--hud-cut-xs),
-    100% calc(100% - var(--hud-cut-xs)),
-    calc(100% - var(--hud-cut-xs)) 100%,
-    var(--hud-cut-xs) 100%,
-    0 calc(100% - var(--hud-cut-xs)),
-    0 var(--hud-cut-xs)
-  );
+  border-radius: 999px;
 }
 
 .error {
-  font-size: 0.6rem;
-  text-transform: uppercase;
-  letter-spacing: 0.16em;
-  padding: 4px 8px;
+  font-size: 0.65rem;
+  letter-spacing: 0.04em;
+  padding: 4px 10px;
   color: var(--status-error);
-  border: 1px solid rgba(var(--status-error-rgb), 0.5);
+  border: 1px solid rgba(var(--status-error-rgb), 0.4);
   background: rgba(var(--status-error-rgb), 0.12);
-  font-family: var(--font-display);
-  clip-path: polygon(
-    var(--hud-cut-xs) 0,
-    calc(100% - var(--hud-cut-xs)) 0,
-    100% var(--hud-cut-xs),
-    100% calc(100% - var(--hud-cut-xs)),
-    calc(100% - var(--hud-cut-xs)) 100%,
-    var(--hud-cut-xs) 100%,
-    0 calc(100% - var(--hud-cut-xs)),
-    0 var(--hud-cut-xs)
-  );
+  border-radius: 999px;
 }
 
 .task-list {
@@ -352,23 +473,12 @@ watch(
   justify-content: space-between;
   gap: 12px;
   padding: 8px 12px;
-  border-radius: 0;
-  border: 1px solid var(--line);
-  background: rgba(8, 12, 20, 0.7);
+  border-radius: 12px;
+  border: 1px solid rgba(var(--line-rgb), 0.18);
+  background: rgba(var(--line-rgb), 0.06);
   color: var(--text-secondary);
   font-size: 0.85rem;
   position: relative;
-  box-shadow: 0 10px 18px rgba(0, 0, 0, 0.25);
-  clip-path: polygon(
-    var(--hud-cut-xs) 0,
-    calc(100% - var(--hud-cut-xs)) 0,
-    100% var(--hud-cut-xs),
-    100% calc(100% - var(--hud-cut-xs)),
-    calc(100% - var(--hud-cut-xs)) 100%,
-    var(--hud-cut-xs) 100%,
-    0 calc(100% - var(--hud-cut-xs)),
-    0 var(--hud-cut-xs)
-  );
 }
 
 .task-list li::before {
@@ -387,25 +497,13 @@ watch(
 }
 
 .task-status {
-  text-transform: uppercase;
-  letter-spacing: 0.14em;
-  font-size: 0.6rem;
-  padding: 4px 8px;
-  border-radius: 0;
-  border: 1px solid rgba(var(--line-rgb), 0.35);
-  background: rgba(8, 12, 20, 0.75);
+  letter-spacing: 0.04em;
+  font-size: 0.65rem;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--line-rgb), 0.25);
+  background: rgba(var(--line-rgb), 0.08);
   color: var(--text-secondary);
-  font-family: var(--font-display);
-  clip-path: polygon(
-    var(--hud-cut-xs) 0,
-    calc(100% - var(--hud-cut-xs)) 0,
-    100% var(--hud-cut-xs),
-    100% calc(100% - var(--hud-cut-xs)),
-    calc(100% - var(--hud-cut-xs)) 100%,
-    var(--hud-cut-xs) 100%,
-    0 calc(100% - var(--hud-cut-xs)),
-    0 var(--hud-cut-xs)
-  );
 }
 
 .task-status[data-status="pending"],
@@ -445,4 +543,3 @@ watch(
   margin: 0;
 }
 </style>
-

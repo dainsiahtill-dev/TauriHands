@@ -37,8 +37,8 @@ const props = defineProps<{
   gap: 12px;
   padding: 8px 10px;
   border-radius: 10px;
-  border: 1px solid var(--line);
-  background: rgba(8, 12, 20, 0.7);
+  border: 1px solid rgba(var(--line-rgb), 0.2);
+  background: rgba(var(--line-rgb), 0.08);
   color: var(--text-secondary);
   font-size: 0.85rem;
 }

@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
+import { useRouter } from "vue-router";
 import { agentStore } from "../agents/orchestrator";
 
 const { state } = agentStore;
+const router = useRouter();
 const events = computed(() => state.events ?? []);
 const focusedId = computed(() => state.timelineFocusId ?? "");
 
@@ -59,6 +61,10 @@ function scrollToFocused() {
   if (target && target instanceof HTMLElement) {
     target.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }
+}
+
+function goToLoop() {
+  void router.push({ name: "loop" });
 }
 
 watch(
@@ -123,7 +129,10 @@ watch(
         <span class="event-time">{{ formatTime(event.ts) }}</span>
       </li>
     </ul>
-    <p v-else class="empty">No events yet.</p>
+    <div v-else class="empty-state">
+      <p class="empty">No events yet.</p>
+      <button class="btn ghost" type="button" @click="goToLoop">Go to Loop</button>
+    </div>
   </div>
 </template>
 
@@ -150,7 +159,7 @@ watch(
   padding: 6px 8px;
   border-radius: 8px;
   border: 1px solid var(--line);
-  background: rgba(8, 12, 20, 0.7);
+  background: rgba(var(--line-rgb), 0.08);
   color: var(--text-primary);
   font-size: 0.8rem;
 }
@@ -170,7 +179,7 @@ watch(
   padding: 8px 10px;
   border-radius: 10px;
   border: 1px solid var(--line);
-  background: rgba(8, 12, 20, 0.7);
+  background: rgba(var(--line-rgb), 0.08);
   font-size: 0.85rem;
 }
 
@@ -378,6 +387,18 @@ watch(
 .empty {
   margin: 0;
   color: var(--text-tertiary);
+}
+
+.empty-state {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px dashed rgba(var(--line-rgb), 0.3);
+  background: rgba(var(--line-rgb), 0.06);
 }
 </style>
 

@@ -53,7 +53,7 @@ defineProps<Props>();
   padding: 10px 12px;
   border-radius: 0;
   border: 1px solid rgba(var(--line-rgb), 0.4);
-  background: rgba(8, 12, 20, 0.85);
+  background: rgba(var(--line-rgb), 0.1);
   clip-path: polygon(
     var(--hud-cut-xs) 0,
     calc(100% - var(--hud-cut-xs)) 0,
@@ -81,7 +81,7 @@ defineProps<Props>();
   border-radius: 0;
   border: 1px solid rgba(var(--line-rgb), 0.3);
   color: var(--text-soft);
-  background: rgba(8, 12, 20, 0.6);
+  background: rgba(var(--line-rgb), 0.08);
   clip-path: polygon(
     var(--hud-cut-xs) 0,
     calc(100% - var(--hud-cut-xs)) 0,

@@ -202,9 +202,9 @@
     }
 
     .hud-cut {
-      --hud-cut: 12px;
-      --hud-cut-sm: 8px;
-      --hud-cut-xs: 4px;
+      --hud-cut: 0px;
+      --hud-cut-sm: 0px;
+      --hud-cut-xs: 0px;
     }
   }
 
@@ -240,13 +240,14 @@
   @media (prefers-color-scheme: light) {
     :root {
       color-scheme: light;
-      --bg: #f8fafc;
-      --text-primary: #1e293b;
-      --text-secondary: #475569;
-      --text-tertiary: #94a3b8;
-      --panel-core: linear-gradient(135deg, rgba(255, 255, 255, 0.95), rgba(248, 250, 252, 0.9));
-      --accent: #3b82f6;
-      --accent-rgb: 59, 130, 246;
+      --bg: #f4f7ff;
+      --text-primary: #1f2a44;
+      --text-secondary: #50607f;
+      --text-tertiary: #6f7ccf;
+      --line-rgb: 111, 124, 207;
+      --panel-core: linear-gradient(180deg, #ffffff, #f5f9ff);
+      --accent: #409eff;
+      --accent-rgb: 64, 158, 255;
     }
   }
 
@@ -415,9 +416,9 @@
   /* Compact mode for small screens */
   @media (max-width: 600px) {
     .app-frame {
-      --hud-cut: 8px;
-      --hud-cut-sm: 6px;
-      --hud-cut-xs: 4px;
+      --hud-cut: 0px;
+      --hud-cut-sm: 0px;
+      --hud-cut-xs: 0px;
     }
 
     .eyebrow {

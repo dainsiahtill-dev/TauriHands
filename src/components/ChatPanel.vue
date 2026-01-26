@@ -35,6 +35,7 @@ const input = ref("");
 const inputRef = ref<HTMLTextAreaElement | null>(null);
 const listRef = ref<HTMLDivElement | null>(null);
 const sendError = ref("");
+const isAtBottom = ref(true);
 const agentState = computed(() => state.run?.agentState ?? "IDLE");
 const isAwaiting = computed(() => agentState.value === "AWAITING_USER");
 const chatEntries = computed(() => state.chatEntries ?? []);
@@ -49,10 +50,18 @@ function scrollToBottom() {
   const el = listRef.value;
   if (!el) return;
   el.scrollTop = el.scrollHeight;
+  isAtBottom.value = true;
 }
 
 function handleFocusInput() {
   inputRef.value?.focus();
+}
+
+function updateScrollState() {
+  const el = listRef.value;
+  if (!el) return;
+  const threshold = 24;
+  isAtBottom.value = el.scrollTop + el.clientHeight >= el.scrollHeight - threshold;
 }
 
 async function handleContinue() {
@@ -105,18 +114,6 @@ async function sendMessage(forceChatOnly = false) {
   }
 }
 
-function avatarClass(role: ChatRole) {
-  if (role === "assistant") return "chat-avatar chat-avatar--assistant";
-  if (role === "user") return "chat-avatar chat-avatar--user";
-  return "chat-avatar chat-avatar--system";
-}
-
-function bubbleClass(role: ChatRole) {
-  if (role === "user") return "chat-bubble chat-bubble--user";
-  if (role === "assistant") return "chat-bubble chat-bubble--assistant";
-  return "chat-bubble chat-bubble--system";
-}
-
 function statusClass(status: ChatToolCall["status"]) {
   if (status === "ok") return "tool-status tool-status--ok";
   if (status === "error") return "tool-status tool-status--error";
@@ -126,11 +123,15 @@ function statusClass(status: ChatToolCall["status"]) {
 onMounted(async () => {
   await initKernelStore();
   window.addEventListener("focus-chat-input", handleFocusInput);
-  void nextTick().then(scrollToBottom);
+  await nextTick();
+  scrollToBottom();
+  listRef.value?.addEventListener("scroll", updateScrollState);
+  updateScrollState();
 });
 
 onBeforeUnmount(() => {
   window.removeEventListener("focus-chat-input", handleFocusInput);
+  listRef.value?.removeEventListener("scroll", updateScrollState);
 });
 
 watch(
@@ -148,65 +149,60 @@ watch(
     </template>
 
     <div class="chat-panel">
-      <div class="chat-banner">
-        <span>Execution Loop</span>
-        <strong>Plan -> Act -> Observe</strong>
-      </div>
-      <div
-        v-if="isAwaiting"
-        class="mx-4 mt-2 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-accent-lime/40 bg-accent-lime/10 px-4 py-3"
-      >
+      <div class="conversation-header">
         <div>
-          <p class="text-[11px] uppercase tracking-[0.2em] text-accent-lime">Action required</p>
-          <p class="text-sm text-text-main">The agent is waiting for confirmation or input.</p>
+          <p class="conversation-eyebrow">Execution loop</p>
+          <p class="conversation-title">Plan -> Act -> Observe</p>
         </div>
-        <div class="flex gap-2">
+        <div class="conversation-meta">
+          <span class="conversation-meta__label">Session</span>
+          <span class="conversation-meta__value">{{ agentState }}</span>
+        </div>
+      </div>
+
+      <div v-if="isAwaiting" class="conversation-alert">
+        <div>
+          <p class="alert-title">Action required</p>
+          <p class="alert-text">The agent is waiting for confirmation or input.</p>
+        </div>
+        <div class="alert-actions">
           <button class="btn primary" type="button" @click="handleContinue">Continue</button>
           <button class="btn ghost" type="button" @click="handleStop">Stop</button>
         </div>
       </div>
 
-      <div ref="listRef" class="chat-list">
+      <div ref="listRef" class="conversation-content">
         <div
           v-for="message in displayEntries"
           :key="message.id"
-          class="chat-entry"
-          :class="message.role === 'user' ? 'is-user' : ''"
+          class="message"
+          :data-role="message.role"
         >
-          <div
-            :class="avatarClass(message.role)"
-          >
+          <div class="message-avatar">
             <span v-if="message.role === 'assistant'">AI</span>
             <span v-else-if="message.role === 'user'">U</span>
             <span v-else>SYS</span>
           </div>
 
-          <div class="chat-stack">
-            <div
-              class="chat-meta"
-              :class="message.role === 'user' ? 'is-user' : ''"
-            >
-              <span class="chat-role">
-                {{ message.role }}
-              </span>
-              <span class="chat-time">{{ formatTime(message.timestamp) }}</span>
+          <div class="message-body">
+            <div class="message-meta">
+              <span class="message-role">{{ message.role }}</span>
+              <span class="message-time">{{ formatTime(message.timestamp) }}</span>
             </div>
 
-            <div :class="bubbleClass(message.role)">
+            <div class="message-content">
               {{ message.content }}
             </div>
 
-            <div v-if="message.toolCalls && message.toolCalls.length" class="space-y-2">
+            <div v-if="message.toolCalls && message.toolCalls.length" class="message-tools">
               <details
                 v-for="call in message.toolCalls"
                 :key="call.id"
-                class="tool-detail"
+                class="tool-card"
                 :open="call.status === 'running'"
               >
-                <summary
-                  class="tool-summary"
-                >
-                  <span class="text-accent">{{ call.tool }}</span>
+                <summary class="tool-summary">
+                  <span class="tool-name">{{ call.tool }}</span>
                   <span class="tool-chip" :class="statusClass(call.status)">
                     {{ call.status }}
                   </span>
@@ -221,18 +217,28 @@ watch(
             </div>
           </div>
         </div>
+        <button
+          v-if="!isAtBottom"
+          type="button"
+          class="conversation-scroll"
+          @click="scrollToBottom"
+        >
+          Bottom
+        </button>
       </div>
 
-      <div class="chat-input">
-        <div class="chat-input__box">
+      <div class="prompt-input">
+        <div class="prompt-input__field">
           <textarea
             ref="inputRef"
             v-model="input"
             rows="2"
             placeholder="Type a request for the agent (/chat for chat-only)"
-            class="chat-input__field"
+            class="prompt-input__textarea"
             @keydown.ctrl.enter.prevent="sendMessage"
           ></textarea>
+        </div>
+        <div class="prompt-input__actions">
           <button class="btn ghost" type="button" :disabled="!input.trim()" @click="sendMessage(true)">
             Chat only
           </button>
@@ -240,11 +246,11 @@ watch(
             Send
           </button>
         </div>
-        <div class="chat-input__meta">
-          <span>Ctrl+Enter to send • /chat for chat-only</span>
+        <div class="prompt-input__meta">
+          <span>Ctrl+Enter to send - /chat for chat-only</span>
           <span>Orchestrator: <span class="text-status-success">Online</span></span>
         </div>
-        <p v-if="sendError" class="mt-2 text-xs text-status-warning">{{ sendError }}</p>
+        <p v-if="sendError" class="prompt-input__error">{{ sendError }}</p>
       </div>
     </div>
   </PanelShell>
@@ -264,232 +270,243 @@ summary::marker {
   flex-direction: column;
   height: 100%;
   min-height: 0;
-  background: rgba(6, 12, 22, 0.6);
-  position: relative;
-  overflow: hidden;
-}
-
-.chat-panel::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background:
-    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.035) 0 1px, transparent 1px 5px);
-  opacity: 0.08;
-  pointer-events: none;
-}
-
-.chat-banner {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 16px;
-  border-bottom: 1px solid rgba(var(--line-rgb), 0.28);
-  background: linear-gradient(135deg, rgba(5, 12, 24, 0.95), rgba(2, 8, 16, 0.9));
-  box-shadow: inset 0 0 14px rgba(var(--accent-rgb), 0.12);
-  font-size: 0.6rem;
-  text-transform: uppercase;
-  letter-spacing: 0.22em;
-  color: var(--text-tertiary);
-  position: relative;
-  z-index: 1;
-  font-family: var(--font-display);
-}
-
-.chat-banner strong {
-  color: var(--accent);
-  font-weight: 600;
+  gap: 12px;
 }
 
 .state-chip {
   padding: 4px 10px;
-  border-radius: 0;
-  border: 1px solid rgba(var(--line-rgb), 0.45);
-  background: rgba(8, 14, 26, 0.85);
-  font-size: 0.55rem;
-  text-transform: uppercase;
-  letter-spacing: 0.2em;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--line-rgb), 0.2);
+  background: rgba(var(--line-rgb), 0.08);
+  font-size: 0.65rem;
+  letter-spacing: 0.04em;
   color: var(--text-secondary);
-  clip-path: polygon(
-    var(--hud-cut-xs) 0,
-    calc(100% - var(--hud-cut-xs)) 0,
-    100% var(--hud-cut-xs),
-    100% calc(100% - var(--hud-cut-xs)),
-    calc(100% - var(--hud-cut-xs)) 100%,
-    var(--hud-cut-xs) 100%,
-    0 calc(100% - var(--hud-cut-xs)),
-    0 var(--hud-cut-xs)
-  );
 }
 
 .state-chip[data-state="RUNNING"] {
-  color: var(--accent);
-  border-color: rgba(var(--accent-rgb), 0.5);
+  color: var(--status-success);
+  border-color: rgba(var(--status-success-rgb), 0.4);
+  background: rgba(var(--status-success-rgb), 0.12);
 }
 
 .state-chip[data-state="AWAITING_USER"] {
-  color: var(--accent-2);
-  border-color: rgba(var(--accent-2-rgb), 0.5);
+  color: var(--status-warning);
+  border-color: rgba(var(--status-warning-rgb), 0.4);
+  background: rgba(var(--status-warning-rgb), 0.12);
 }
 
 .state-chip[data-state="ERROR"] {
-  color: var(--status-warning);
-  border-color: rgba(var(--status-warning-rgb), 0.5);
+  color: var(--status-error);
+  border-color: rgba(var(--status-error-rgb), 0.4);
+  background: rgba(var(--status-error-rgb), 0.12);
 }
 
 .state-chip[data-state="PAUSED"] {
   color: var(--status-info);
-  border-color: rgba(var(--status-info-rgb), 0.5);
+  border-color: rgba(var(--status-info-rgb), 0.4);
+  background: rgba(var(--status-info-rgb), 0.12);
 }
 
-.chat-list {
+.conversation-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border-radius: 14px;
+  border: 1px solid rgba(var(--line-rgb), 0.18);
+  background: rgba(var(--line-rgb), 0.06);
+}
+
+.conversation-eyebrow {
+  margin: 0 0 4px;
+  font-size: 0.65rem;
+  color: var(--text-tertiary);
+  letter-spacing: 0.04em;
+}
+
+.conversation-title {
+  margin: 0;
+  font-size: 0.95rem;
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.conversation-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--line-rgb), 0.18);
+  background: rgba(var(--line-rgb), 0.08);
+  font-size: 0.7rem;
+  color: var(--text-secondary);
+}
+
+.conversation-meta__value {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.conversation-alert {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border-radius: 14px;
+  border: 1px solid rgba(var(--status-warning-rgb), 0.35);
+  background: rgba(var(--status-warning-rgb), 0.1);
+}
+
+.alert-title {
+  margin: 0 0 4px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.alert-text {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.alert-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.conversation-content {
+  position: relative;
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
-  padding: 12px 16px 16px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  position: relative;
-  z-index: 1;
+  gap: 16px;
+  padding: 16px;
+  border-radius: 16px;
+  border: 1px solid rgba(var(--line-rgb), 0.18);
+  background: rgba(var(--line-rgb), 0.04);
 }
 
-.chat-entry {
+.conversation-scroll {
+  align-self: flex-end;
+  position: sticky;
+  bottom: 12px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--accent-rgb), 0.4);
+  background: rgba(var(--accent-rgb), 0.12);
+  color: var(--accent);
+  font-size: 0.7rem;
+  cursor: pointer;
+}
+
+.message {
   display: flex;
   gap: 12px;
+  align-items: flex-start;
 }
 
-.chat-entry.is-user {
+.message[data-role="user"] {
   flex-direction: row-reverse;
 }
 
-.chat-avatar {
-  height: 36px;
-  width: 36px;
-  border-radius: 10px;
-  border: 1px solid rgba(var(--line-rgb), 0.4);
-  background: linear-gradient(135deg, rgba(12, 22, 40, 0.9), rgba(7, 12, 22, 0.85));
+.message-avatar {
+  height: 32px;
+  width: 32px;
+  border-radius: 12px;
+  border: 1px solid rgba(var(--line-rgb), 0.2);
+  background: rgba(var(--line-rgb), 0.08);
   display: grid;
   place-items: center;
   font-size: 0.7rem;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
   color: var(--text-primary);
 }
 
-.chat-avatar--assistant {
+.message[data-role="assistant"] .message-avatar {
+  border-color: rgba(var(--accent-rgb), 0.4);
   color: var(--accent);
-  border-color: rgba(var(--accent-rgb), 0.5);
-  box-shadow: 0 0 12px rgba(var(--accent-rgb), 0.25);
 }
 
-.chat-avatar--user {
-  border-color: rgba(var(--line-rgb), 0.45);
-}
-
-.chat-avatar--system {
+.message[data-role="system"] .message-avatar {
+  border-color: rgba(var(--status-warning-rgb), 0.4);
   color: var(--status-warning);
-  border-color: rgba(var(--status-warning-rgb), 0.5);
 }
 
-.chat-stack {
+.message-body {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  max-width: 80%;
+  max-width: 75%;
 }
 
-.chat-meta {
+.message[data-role="user"] .message-body {
+  align-items: flex-end;
+}
+
+.message-meta {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 0.55rem;
-  text-transform: uppercase;
-  letter-spacing: 0.18em;
+  font-size: 0.65rem;
   color: var(--text-tertiary);
 }
 
-.chat-meta.is-user {
+.message[data-role="user"] .message-meta {
   justify-content: flex-end;
 }
 
-.chat-role {
+.message-role {
   padding: 2px 8px;
-  border-radius: 0;
-  border: 1px solid rgba(var(--line-rgb), 0.4);
-  background: rgba(7, 12, 22, 0.6);
+  border-radius: 999px;
+  border: 1px solid rgba(var(--line-rgb), 0.16);
+  background: rgba(var(--line-rgb), 0.06);
   color: var(--text-secondary);
-  clip-path: polygon(
-    var(--hud-cut-xs) 0,
-    calc(100% - var(--hud-cut-xs)) 0,
-    100% var(--hud-cut-xs),
-    100% calc(100% - var(--hud-cut-xs)),
-    calc(100% - var(--hud-cut-xs)) 100%,
-    var(--hud-cut-xs) 100%,
-    0 calc(100% - var(--hud-cut-xs)),
-    0 var(--hud-cut-xs)
-  );
+  text-transform: capitalize;
 }
 
-.chat-time {
-  font-family: var(--font-body);
-  font-size: 0.6rem;
+.message-time {
+  font-size: 0.65rem;
   color: var(--text-tertiary);
 }
 
-.chat-bubble {
-  border-radius: 0;
-  border: 1px solid rgba(var(--line-rgb), 0.4);
+.message-content {
   padding: 10px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(var(--line-rgb), 0.18);
+  background: rgba(var(--line-rgb), 0.08);
+  color: var(--text-primary);
   font-size: 0.85rem;
-  line-height: 1.5;
-  background: rgba(7, 12, 22, 0.78);
-  color: var(--text-soft);
-  box-shadow: inset 0 0 12px rgba(var(--accent-rgb), 0.08);
-  clip-path: polygon(
-    var(--hud-cut-xs) 0,
-    calc(100% - var(--hud-cut-xs)) 0,
-    100% var(--hud-cut-xs),
-    100% calc(100% - var(--hud-cut-xs)),
-    calc(100% - var(--hud-cut-xs)) 100%,
-    var(--hud-cut-xs) 100%,
-    0 calc(100% - var(--hud-cut-xs)),
-    0 var(--hud-cut-xs)
-  );
+  line-height: 1.6;
+  white-space: pre-wrap;
 }
 
-.chat-bubble--user {
-  border-color: rgba(var(--accent-rgb), 0.5);
-  background: rgba(var(--accent-rgb), 0.12);
-  color: var(--text-primary);
-  box-shadow: 0 0 18px rgba(var(--accent-rgb), 0.18);
+.message[data-role="user"] .message-content {
+  border-color: rgba(var(--accent-rgb), 0.35);
+  background: rgba(var(--accent-rgb), 0.16);
 }
 
-.chat-bubble--assistant {
-  background: rgba(9, 16, 30, 0.85);
-  color: var(--text-primary);
-}
-
-.chat-bubble--system {
-  background: rgba(8, 14, 26, 0.6);
+.message[data-role="system"] .message-content {
+  background: rgba(var(--line-rgb), 0.05);
   color: var(--text-secondary);
 }
 
-.tool-detail {
-  border-radius: 0;
-  border: 1px solid rgba(var(--line-rgb), 0.35);
-  background: rgba(7, 12, 22, 0.75);
+.message-tools {
+  display: grid;
+  gap: 8px;
+}
+
+.tool-card {
+  border-radius: 12px;
+  border: 1px solid rgba(var(--line-rgb), 0.16);
+  background: rgba(var(--line-rgb), 0.06);
   overflow: hidden;
-  clip-path: polygon(
-    var(--hud-cut-xs) 0,
-    calc(100% - var(--hud-cut-xs)) 0,
-    100% var(--hud-cut-xs),
-    100% calc(100% - var(--hud-cut-xs)),
-    calc(100% - var(--hud-cut-xs)) 100%,
-    var(--hud-cut-xs) 100%,
-    0 calc(100% - var(--hud-cut-xs)),
-    0 var(--hud-cut-xs)
-  );
 }
 
 .tool-summary {
@@ -498,62 +515,53 @@ summary::marker {
   align-items: center;
   gap: 8px;
   padding: 8px 10px;
-  font-size: 0.55rem;
-  text-transform: uppercase;
-  letter-spacing: 0.2em;
-  color: var(--text-tertiary);
+  font-size: 0.7rem;
+  color: var(--text-secondary);
   cursor: pointer;
   list-style: none;
 }
 
+.tool-name {
+  font-weight: 600;
+  color: var(--accent);
+}
+
 .tool-chip {
   padding: 2px 6px;
-  border-radius: 0;
-  border: 1px solid rgba(var(--line-rgb), 0.4);
-  font-size: 0.55rem;
-  clip-path: polygon(
-    var(--hud-cut-xs) 0,
-    calc(100% - var(--hud-cut-xs)) 0,
-    100% var(--hud-cut-xs),
-    100% calc(100% - var(--hud-cut-xs)),
-    calc(100% - var(--hud-cut-xs)) 100%,
-    var(--hud-cut-xs) 100%,
-    0 calc(100% - var(--hud-cut-xs)),
-    0 var(--hud-cut-xs)
-  );
+  border-radius: 999px;
+  border: 1px solid rgba(var(--line-rgb), 0.2);
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 .tool-status {
-  text-transform: uppercase;
-  letter-spacing: 0.18em;
+  letter-spacing: 0.06em;
 }
 
 .tool-status--ok {
   color: var(--status-success);
-  border-color: rgba(var(--status-success-rgb), 0.5);
+  border-color: rgba(var(--status-success-rgb), 0.4);
 }
 
 .tool-status--error {
-  color: var(--status-warning);
-  border-color: rgba(var(--status-warning-rgb), 0.5);
+  color: var(--status-error);
+  border-color: rgba(var(--status-error-rgb), 0.4);
 }
 
 .tool-status--running {
   color: var(--accent);
-  border-color: rgba(var(--accent-rgb), 0.5);
+  border-color: rgba(var(--accent-rgb), 0.4);
 }
 
 .tool-detail-text {
-  text-transform: none;
-  letter-spacing: 0;
-  color: var(--text-secondary);
-  font-size: 0.7rem;
+  color: var(--text-tertiary);
 }
 
 .tool-body {
-  border-top: 1px solid rgba(var(--line-rgb), 0.24);
+  border-top: 1px solid rgba(var(--line-rgb), 0.14);
   padding: 10px;
-  font-size: 0.7rem;
+  font-size: 0.75rem;
   color: var(--text-secondary);
 }
 
@@ -561,11 +569,11 @@ summary::marker {
   margin: 0 0 8px;
   white-space: pre-wrap;
   font-family: var(--font-body);
-  font-size: 0.7rem;
+  font-size: 0.75rem;
   color: var(--text-primary);
-  background: rgba(5, 8, 14, 0.7);
-  border: 1px solid rgba(var(--line-rgb), 0.24);
-  border-radius: 0;
+  background: rgba(var(--line-rgb), 0.08);
+  border: 1px solid rgba(var(--line-rgb), 0.16);
+  border-radius: 10px;
   padding: 8px;
 }
 
@@ -579,63 +587,56 @@ summary::marker {
   color: var(--text-tertiary);
 }
 
-.chat-input {
-  border-top: 1px solid rgba(var(--line-rgb), 0.3);
-  background: rgba(8, 14, 26, 0.8);
-  padding: 12px 16px 14px;
-  position: relative;
-  z-index: 1;
-}
-
-.chat-input__box {
-  display: flex;
-  align-items: flex-end;
+.prompt-input {
+  border-radius: 16px;
+  border: 1px solid rgba(var(--line-rgb), 0.18);
+  background: rgba(var(--line-rgb), 0.06);
+  padding: 12px 14px;
+  display: grid;
   gap: 10px;
+}
+
+.prompt-input__field {
+  border-radius: 12px;
+  border: 1px solid rgba(var(--line-rgb), 0.18);
+  background: rgba(var(--line-rgb), 0.05);
   padding: 8px 10px;
-  border-radius: 0;
-  border: 1px solid rgba(var(--line-rgb), 0.45);
-  background: rgba(7, 12, 22, 0.75);
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
-  clip-path: polygon(
-    var(--hud-cut-xs) 0,
-    calc(100% - var(--hud-cut-xs)) 0,
-    100% var(--hud-cut-xs),
-    100% calc(100% - var(--hud-cut-xs)),
-    calc(100% - var(--hud-cut-xs)) 100%,
-    var(--hud-cut-xs) 100%,
-    0 calc(100% - var(--hud-cut-xs)),
-    0 var(--hud-cut-xs)
-  );
 }
 
-.chat-input__box:focus-within {
-  border-color: rgba(var(--accent-rgb), 0.6);
-  box-shadow: 0 0 18px rgba(var(--accent-rgb), 0.18);
-}
-
-.chat-input__field {
-  flex: 1;
-  min-height: 44px;
-  resize: none;
-  background: transparent;
+.prompt-input__textarea {
+  width: 100%;
   border: none;
+  background: transparent;
   color: var(--text-primary);
   font-size: 0.85rem;
+  resize: none;
   outline: none;
 }
 
-.chat-input__field::placeholder {
+.prompt-input__textarea::placeholder {
   color: var(--text-tertiary);
 }
 
-.chat-input__meta {
+.prompt-input__actions {
   display: flex;
-  align-items: center;
+  gap: 8px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.prompt-input__meta {
+  display: flex;
   justify-content: space-between;
-  margin-top: 8px;
-  font-size: 0.6rem;
-  text-transform: uppercase;
-  letter-spacing: 0.16em;
+  gap: 8px;
+  font-size: 0.65rem;
   color: var(--text-tertiary);
 }
+
+.prompt-input__error {
+  margin: 0;
+  font-size: 0.7rem;
+  color: var(--status-warning);
+}
 </style>
+
+

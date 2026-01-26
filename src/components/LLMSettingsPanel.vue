@@ -730,17 +730,23 @@ onMounted(() => {
   justify-content: space-between;
   gap: 16px;
   align-items: flex-start;
+  padding: 12px 16px;
+  border-radius: 16px;
+  border: 1px solid rgba(var(--line-rgb), 0.18);
+  background: rgba(var(--line-rgb), 0.06);
 }
 
 .settings-header h2 {
   margin: 6px 0 8px;
-  font-size: 1.6rem;
+  font-size: 1.4rem;
+  letter-spacing: 0.02em;
 }
 
 .subtitle {
   margin: 0;
   color: var(--text-secondary);
   max-width: 520px;
+  line-height: 1.5;
 }
 
 .header-actions {
@@ -752,35 +758,24 @@ onMounted(() => {
 
 .save-status {
   align-self: center;
-  font-size: 0.65rem;
-  text-transform: uppercase;
-  letter-spacing: 0.14em;
-  padding: 6px 10px;
-  border-radius: 0;
-  border: 1px solid rgba(var(--line-rgb), 0.4);
+  font-size: 0.7rem;
+  letter-spacing: 0.03em;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--line-rgb), 0.2);
   color: var(--text-secondary);
-  background: rgba(4, 12, 22, 0.8);
-  clip-path: polygon(
-    var(--hud-cut-xs) 0,
-    calc(100% - var(--hud-cut-xs)) 0,
-    100% var(--hud-cut-xs),
-    100% calc(100% - var(--hud-cut-xs)),
-    calc(100% - var(--hud-cut-xs)) 100%,
-    var(--hud-cut-xs) 100%,
-    0 calc(100% - var(--hud-cut-xs)),
-    0 var(--hud-cut-xs)
-  );
+  background: rgba(var(--line-rgb), 0.06);
 }
 
 .save-status[data-status="saved"] {
   color: var(--status-success);
-  border-color: rgba(var(--status-success-rgb), 0.4);
+  border-color: rgba(var(--status-success-rgb), 0.3);
   background: rgba(var(--status-success-rgb), 0.12);
 }
 
 .save-status[data-status="error"] {
   color: var(--status-warning);
-  border-color: rgba(var(--status-warning-rgb), 0.4);
+  border-color: rgba(var(--status-warning-rgb), 0.3);
   background: rgba(var(--status-warning-rgb), 0.12);
 }
 
@@ -792,34 +787,13 @@ onMounted(() => {
 
 .card {
   padding: 18px;
-  border-radius: 0;
-  background: var(--panel-core);
-  border: 1px solid rgba(var(--line-rgb), 0.4);
+  border-radius: 16px;
+  background: rgba(var(--line-rgb), 0.06);
+  border: 1px solid rgba(var(--line-rgb), 0.18);
   display: grid;
   gap: 14px;
   position: relative;
   overflow: hidden;
-  clip-path: polygon(
-    var(--hud-cut-sm) 0,
-    calc(100% - var(--hud-cut-sm)) 0,
-    100% var(--hud-cut-sm),
-    100% calc(100% - var(--hud-cut-sm)),
-    calc(100% - var(--hud-cut-sm)) 100%,
-    var(--hud-cut-sm) 100%,
-    0 calc(100% - var(--hud-cut-sm)),
-    0 var(--hud-cut-sm)
-  );
-}
-
-.card::after {
-  content: "";
-  position: absolute;
-  inset: -50% -50% auto auto;
-  width: 240px;
-  height: 240px;
-  background: radial-gradient(circle, rgba(var(--accent-rgb), 0.12), transparent 70%);
-  opacity: 0.6;
-  pointer-events: none;
 }
 
 .card.wide {
@@ -837,31 +811,19 @@ onMounted(() => {
 
 .card-head h3 {
   margin: 0;
-  font-size: 1.1rem;
+  font-size: 0.95rem;
   font-family: var(--font-display);
-  text-transform: uppercase;
-  letter-spacing: 0.18em;
+  letter-spacing: 0.02em;
 }
 
 .pill {
   font-size: 0.65rem;
-  text-transform: uppercase;
-  letter-spacing: 0.14em;
-  padding: 6px 10px;
-  border-radius: 0;
-  border: 1px solid rgba(var(--accent-rgb), 0.4);
+  letter-spacing: 0.03em;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--accent-rgb), 0.35);
   color: var(--accent);
   background: rgba(var(--accent-rgb), 0.12);
-  clip-path: polygon(
-    var(--hud-cut-xs) 0,
-    calc(100% - var(--hud-cut-xs)) 0,
-    100% var(--hud-cut-xs),
-    100% calc(100% - var(--hud-cut-xs)),
-    calc(100% - var(--hud-cut-xs)) 100%,
-    var(--hud-cut-xs) 100%,
-    0 calc(100% - var(--hud-cut-xs)),
-    0 var(--hud-cut-xs)
-  );
 }
 
 .settings-footer {
@@ -889,8 +851,7 @@ onMounted(() => {
 .eyebrow {
   margin: 0;
   font-size: 0.7rem;
-  text-transform: uppercase;
-  letter-spacing: 0.2em;
+  letter-spacing: 0.03em;
   color: var(--status-success);
 }
 

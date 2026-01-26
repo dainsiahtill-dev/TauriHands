@@ -73,8 +73,8 @@ onMounted(() => {
   margin: 0;
   padding: 10px 12px;
   border-radius: 10px;
-  border: 1px solid var(--line);
-  background: rgba(8, 12, 20, 0.7);
+  border: 1px solid rgba(var(--line-rgb), 0.2);
+  background: rgba(var(--line-rgb), 0.08);
   color: var(--text-primary);
   font-size: 0.8rem;
   white-space: pre-wrap;

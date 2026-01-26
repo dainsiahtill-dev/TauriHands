@@ -315,20 +315,10 @@ watch(
 .tab-count {
   font-size: 0.6rem;
   padding: 2px 6px;
-  border-radius: 0;
-  background: rgba(8, 12, 20, 0.85);
-  border: 1px solid rgba(var(--line-rgb), 0.4);
-  color: var(--text-soft);
-  clip-path: polygon(
-    var(--hud-cut-xs) 0,
-    calc(100% - var(--hud-cut-xs)) 0,
-    100% var(--hud-cut-xs),
-    100% calc(100% - var(--hud-cut-xs)),
-    calc(100% - var(--hud-cut-xs)) 100%,
-    var(--hud-cut-xs) 100%,
-    0 calc(100% - var(--hud-cut-xs)),
-    0 var(--hud-cut-xs)
-  );
+  border-radius: 999px;
+  background: rgba(var(--line-rgb), 0.12);
+  border: 1px solid rgba(var(--line-rgb), 0.25);
+  color: var(--text-primary);
 }
 
 .section {

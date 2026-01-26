@@ -11,6 +11,20 @@ type TreeItem = {
   children?: TreeItem[];
 };
 
+type SearchMatch = {
+  path: string;
+  line: number;
+  column: number;
+  text: string;
+};
+
+type ToolResult = {
+  ok: boolean;
+  stdout_excerpt?: string | null;
+  stderr_excerpt?: string | null;
+  artifacts?: { matches?: SearchMatch[] } | null;
+};
+
 const workspacePathInput = ref("");
 const workspaceError = ref("");
 const workspaceLabel = computed(() => {
@@ -22,6 +36,11 @@ const workspaceLabel = computed(() => {
 
 const treeItems = ref<TreeItem[]>([]);
 const treeError = ref("");
+const searchQuery = ref("");
+const searchResults = ref<SearchMatch[]>([]);
+const searchError = ref("");
+const searchStatus = ref<"idle" | "loading">("idle");
+const isSearching = computed(() => searchStatus.value === "loading");
 
 async function loadWorkspace() {
   try {
@@ -65,6 +84,43 @@ async function loadTree() {
     const message = extractErrorMessage(error);
     treeError.value = message || "Unable to load workspace tree.";
   }
+}
+
+async function runSearch() {
+  const pattern = searchQuery.value.trim();
+  if (!pattern) {
+    searchError.value = "Search query is required.";
+    searchResults.value = [];
+    return;
+  }
+  searchError.value = "";
+  searchStatus.value = "loading";
+  try {
+    const result = (await invoke("fs_search", {
+      request: {
+        pattern,
+        max_results: 200,
+      },
+    })) as ToolResult;
+    if (!result.ok) {
+      searchError.value = result.stderr_excerpt ?? "Search failed.";
+      searchResults.value = [];
+      return;
+    }
+    searchResults.value = result.artifacts?.matches ?? [];
+  } catch (error) {
+    const message = extractErrorMessage(error);
+    searchError.value = message || "Unable to run search.";
+    searchResults.value = [];
+  } finally {
+    searchStatus.value = "idle";
+  }
+}
+
+function formatLocation(match: SearchMatch) {
+  if (!match.line) return match.path;
+  const column = match.column ? `:${match.column}` : "";
+  return `${match.path}:${match.line}${column}`;
 }
 
 async function browseWorkspace() {
@@ -154,8 +210,28 @@ function extractErrorMessage(error: unknown) {
     <p v-if="workspaceError" class="error-text">{{ workspaceError }}</p>
 
     <div class="search-box">
-      <input type="text" placeholder="Search (planned)" disabled />
-      <button class="btn ghost" type="button" disabled>rg</button>
+      <input
+        v-model="searchQuery"
+        type="text"
+        placeholder="Search in workspace"
+        @keydown.enter.prevent="runSearch"
+      />
+      <button class="btn ghost" type="button" @click="runSearch" :disabled="isSearching">
+        rg
+      </button>
+    </div>
+    <p v-if="searchError" class="error-text">{{ searchError }}</p>
+
+    <div class="section">
+      <div class="section-title">Results</div>
+      <p v-if="isSearching" class="empty-text">Searching...</p>
+      <p v-else-if="!searchResults.length" class="empty-text">No results.</p>
+      <ul v-else class="search-results">
+        <li v-for="(match, index) in searchResults" :key="`${match.path}-${match.line}-${index}`">
+          <div class="search-location">{{ formatLocation(match) }}</div>
+          <div class="search-text">{{ match.text }}</div>
+        </li>
+      </ul>
     </div>
 
     <div class="section">
@@ -243,6 +319,48 @@ function extractErrorMessage(error: unknown) {
 .search-box input:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.search-results {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+  max-height: 200px;
+  overflow: auto;
+}
+
+.search-results li {
+  border-radius: 0;
+  border: 1px solid rgba(var(--line-rgb), 0.35);
+  padding: 8px 10px;
+  background: rgba(7, 12, 20, 0.75);
+  display: grid;
+  gap: 4px;
+  font-size: 0.75rem;
+  color: var(--text-soft);
+  clip-path: polygon(
+    var(--hud-cut-xs) 0,
+    calc(100% - var(--hud-cut-xs)) 0,
+    100% var(--hud-cut-xs),
+    100% calc(100% - var(--hud-cut-xs)),
+    calc(100% - var(--hud-cut-xs)) 100%,
+    var(--hud-cut-xs) 100%,
+    0 calc(100% - var(--hud-cut-xs)),
+    0 var(--hud-cut-xs)
+  );
+}
+
+.search-location {
+  color: var(--accent);
+  font-size: 0.68rem;
+  word-break: break-all;
+}
+
+.search-text {
+  color: var(--text-secondary);
+  word-break: break-word;
 }
 
 .workspace-select {

@@ -4,48 +4,30 @@
     height: 100%;
     width: 100%;
     color: var(--text-primary);
-    perspective: 1800px;
-    perspective-origin: 50% 22%;
     overflow: hidden;
-    --scene-tilt-x: 0deg;
-    --scene-tilt-y: 0deg;
     isolation: isolate;
   }
 
-  .scanline {
-    position: absolute;
-    inset: 0;
-    background:
-      linear-gradient(
-        to bottom,
-        rgba(255, 255, 255, 0) 0%,
-        rgba(255, 255, 255, 0) 50%,
-        rgba(0, 0, 0, 0.12) 50%,
-        rgba(0, 0, 0, 0.12) 100%
-      );
-    background-size: 100% 4px;
-    opacity: 0.3;
-    pointer-events: none;
-    z-index: 8;
-  }
+.scanline {
+  opacity: 0;
+  pointer-events: none;
+}
 
   .glass-panel {
     background: var(--panel);
     backdrop-filter: blur(12px);
-    border: 1px solid rgba(var(--accent-rgb), 0.3);
-    box-shadow:
-      0 0 15px rgba(var(--accent-rgb), 0.1),
-      inset 0 0 20px rgba(0, 0, 0, 0.8);
+    border: 1px solid rgba(var(--line-rgb), 0.22);
+    box-shadow: 0 12px 26px rgba(64, 158, 255, 0.18);
   }
 
   .neon-text {
     color: var(--accent);
-    text-shadow: 0 0 5px rgba(var(--accent-rgb), 0.8), 0 0 10px rgba(var(--accent-rgb), 0.5);
+    text-shadow: 0 0 10px rgba(var(--accent-rgb), 0.35);
   }
 
   .neon-border {
-    border-color: rgba(var(--accent-rgb), 0.5);
-    box-shadow: 0 0 8px rgba(var(--accent-rgb), 0.3);
+    border-color: rgba(var(--accent-rgb), 0.4);
+    box-shadow: 0 0 10px rgba(var(--accent-rgb), 0.22);
   }
 
   .attention-overlay {
@@ -53,7 +35,7 @@
     inset: 0;
     display: grid;
     place-items: center;
-    background: linear-gradient(135deg, rgba(2, 6, 16, 0.82), rgba(2, 10, 20, 0.6));
+    background: linear-gradient(135deg, rgba(64, 158, 255, 0.2), rgba(103, 194, 58, 0.18));
     backdrop-filter: blur(6px);
     z-index: 30;
     pointer-events: auto;
@@ -62,33 +44,18 @@
   .attention-card {
     width: min(520px, 92vw);
     padding: 22px 24px;
-    border-radius: 0;
-    border: 1px solid rgba(var(--accent-rgb), 0.55);
+    border-radius: 16px;
+    border: 1px solid rgba(var(--accent-rgb), 0.4);
     background: var(--panel-core-strong);
-    box-shadow:
-      0 0 26px rgba(var(--accent-rgb), 0.25),
-      0 28px 60px rgba(0, 0, 0, 0.55),
-      inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    box-shadow: 0 20px 40px rgba(64, 158, 255, 0.2);
     text-align: center;
-    clip-path: polygon(
-      var(--hud-cut) 0,
-      calc(100% - var(--hud-cut)) 0,
-      100% var(--hud-cut),
-      100% calc(100% - var(--hud-cut)),
-      calc(100% - var(--hud-cut)) 100%,
-      var(--hud-cut) 100%,
-      0 calc(100% - var(--hud-cut)),
-      0 var(--hud-cut)
-    );
   }
 
   .attention-title {
     margin: 0 0 8px;
-    font-size: 0.9rem;
-    text-transform: uppercase;
-    letter-spacing: 0.28em;
+    font-size: 0.95rem;
+    letter-spacing: 0.18em;
     color: var(--accent);
-    text-shadow: 0 0 18px rgba(var(--accent-rgb), 0.5);
     font-family: var(--font-display);
   }
 
@@ -120,31 +87,22 @@
     display: none;
   }
 
-  .cyber-scene {
-    position: absolute;
-    inset: 0;
-    z-index: 0;
-    pointer-events: none;
-    overflow: hidden;
-  }
+.cyber-scene {
+  display: none;
+}
 
-  .cyber-scene__canvas {
-    height: 100%;
-    width: 100%;
-    display: block;
-    filter: saturate(1.15) contrast(1.08);
-    opacity: 0.82;
-  }
+.cyber-scene__canvas {
+  display: none;
+}
 
-  .app-backdrop {
-    position: absolute;
-    inset: 0;
-    opacity: 0.35;
-    z-index: 1;
-    background:
-      radial-gradient(circle at 15% 18%, rgba(var(--accent-rgb), 0.18), transparent 48%),
-      radial-gradient(circle at 82% 16%, rgba(var(--accent-2-rgb), 0.16), transparent 46%),
-      radial-gradient(circle at 26% 78%, rgba(var(--accent-3-rgb), 0.14), transparent 42%);
-    pointer-events: none;
-  }
+.app-backdrop {
+  position: absolute;
+  inset: 0;
+  opacity: 0.2;
+  z-index: 1;
+  background:
+    radial-gradient(circle at 18% 18%, rgba(var(--accent-rgb), 0.16), transparent 50%),
+    radial-gradient(circle at 82% 12%, rgba(var(--accent-2-rgb), 0.12), transparent 60%);
+  pointer-events: none;
+}
 }

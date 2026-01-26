@@ -226,7 +226,7 @@ function actionIcon(type: string) {
   position: relative;
   border-radius: 0;
   border: 1px solid rgba(var(--accent-rgb), 0.35);
-  background: linear-gradient(145deg, rgba(8, 12, 20, 0.92), rgba(10, 18, 30, 0.92));
+  background: linear-gradient(145deg, rgba(var(--line-rgb), 0.16), rgba(var(--accent-rgb), 0.12));
   padding: 10px 12px;
   display: grid;
   gap: 8px;
@@ -314,7 +314,7 @@ function actionIcon(type: string) {
   font-size: 0.6rem;
   letter-spacing: 0.08em;
   color: var(--accent);
-  background: linear-gradient(150deg, rgba(8, 12, 20, 0.95), rgba(12, 20, 32, 0.85));
+  background: linear-gradient(150deg, rgba(var(--line-rgb), 0.18), rgba(var(--accent-3-rgb), 0.14));
   border: 1px solid rgba(var(--accent-rgb), 0.45);
   text-transform: uppercase;
   box-shadow:

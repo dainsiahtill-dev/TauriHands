@@ -1,0 +1,245 @@
+/* UI/UX Pro Max refinements for the cyber HUD theme */
+@layer base {
+  :root[data-theme-mode="dark"] {
+    --el-color-primary: #409eff;
+    --el-color-success: #67c23a;
+    --el-color-warning: #e6a23c;
+    --el-color-danger: #f56c6c;
+    --el-color-info: #409eff;
+    --el-bg-color: rgba(18, 26, 44, 0.92);
+    --el-bg-color-page: #0b1220;
+    --el-bg-color-overlay: rgba(18, 26, 44, 0.95);
+    --el-border-color: rgba(90, 140, 230, 0.35);
+    --el-border-color-light: rgba(90, 140, 230, 0.28);
+    --el-border-color-lighter: rgba(90, 140, 230, 0.2);
+    --el-text-color-primary: #eaf2ff;
+    --el-text-color-regular: #b5c4e3;
+    --el-text-color-secondary: #8295c6;
+    --el-text-color-placeholder: rgba(130, 149, 198, 0.8);
+    --el-fill-color: rgba(26, 38, 64, 0.65);
+    --el-fill-color-light: rgba(26, 38, 64, 0.5);
+    --el-fill-color-blank: transparent;
+    --el-mask-color: rgba(5, 10, 22, 0.7);
+    --el-border-radius-base: 12px;
+  }
+
+  :root[data-theme-mode="light"] {
+    --el-color-primary: #409eff;
+    --el-color-success: #67c23a;
+    --el-color-warning: #e6a23c;
+    --el-color-danger: #f56c6c;
+    --el-color-info: #409eff;
+    --el-bg-color: #ffffff;
+    --el-bg-color-page: #f4f7ff;
+    --el-bg-color-overlay: #ffffff;
+    --el-border-color: #d6e2ff;
+    --el-border-color-light: #e6eeff;
+    --el-border-color-lighter: #edf3ff;
+    --el-text-color-primary: #1f2a44;
+    --el-text-color-regular: #50607f;
+    --el-text-color-secondary: #6f7ccf;
+    --el-text-color-placeholder: #97a4ce;
+    --el-fill-color: #eef3ff;
+    --el-fill-color-light: #f6f9ff;
+    --el-fill-color-blank: transparent;
+    --el-mask-color: rgba(31, 42, 68, 0.2);
+    --el-border-radius-base: 10px;
+  }
+}
+
+@layer components {
+  .app-container .el-card {
+    background: var(--surface, rgba(20, 24, 30, 0.8));
+    border: 1px solid rgba(var(--line-rgb), 0.18);
+    border-radius: 14px;
+    box-shadow: 0 12px 24px rgba(8, 12, 18, 0.18);
+  }
+
+  .app-container .el-card__header {
+    border-bottom: 1px solid rgba(var(--line-rgb), 0.14);
+    background: rgba(var(--line-rgb), 0.06);
+  }
+
+  .app-container .el-button {
+    border-radius: 12px;
+    text-transform: none;
+    letter-spacing: 0.02em;
+    font-family: var(--font-display);
+  }
+
+  .app-container .el-button--primary {
+    background: linear-gradient(
+      135deg,
+      rgba(var(--accent-rgb), 0.5),
+      rgba(var(--accent-3-rgb), 0.35)
+    );
+    border-color: rgba(var(--accent-rgb), 0.4);
+    box-shadow: 0 10px 18px rgba(var(--accent-rgb), 0.25);
+  }
+
+  .app-container .el-button--primary:hover {
+    background: linear-gradient(
+      135deg,
+      rgba(var(--accent-rgb), 0.7),
+      rgba(var(--accent-3-rgb), 0.45)
+    );
+  }
+
+  .app-container .el-menu {
+    background: transparent;
+    border-right: none;
+  }
+
+  .app-container .el-menu-item {
+    border-radius: 12px;
+  }
+
+  .app-container .el-menu-item.is-active {
+    background: rgba(var(--accent-rgb), 0.18);
+  }
+
+  .app-container .el-input__wrapper,
+  .app-container .el-select__wrapper {
+    background: rgba(var(--line-rgb), 0.06);
+    border: 1px solid rgba(var(--line-rgb), 0.2);
+    border-radius: 12px;
+    box-shadow: none;
+  }
+
+  .app-container .el-dialog {
+    background: var(--panel-core-strong);
+    border: 1px solid rgba(var(--line-rgb), 0.2);
+    border-radius: 18px;
+    box-shadow:
+      0 18px 40px rgba(0, 0, 0, 0.35);
+  }
+
+  .app-container .el-table {
+    background: transparent;
+  }
+
+  .app-container .el-table th.el-table__cell,
+  .app-container .el-table td.el-table__cell {
+    background: rgba(var(--line-rgb), 0.06);
+    border-bottom: 1px solid rgba(var(--line-rgb), 0.14);
+  }
+
+  .app-container .el-tag {
+    border-radius: 999px;
+    letter-spacing: 0.03em;
+  }
+
+  .btn,
+  .field,
+  .panel-shell,
+  .card,
+  .step-card,
+  .chat-bubble,
+  .chat-avatar,
+  .tool-detail,
+  .terminal-capture,
+  .plan-dialog__card,
+  .stat-item,
+  .telemetry-card,
+  .system-card,
+  .hud-panel,
+  .hud-panel-strong,
+  .hud-glass,
+  .mission-item,
+  .task-list li,
+  .event-list li,
+  .tool-call,
+  .plan-item,
+  .activity-card,
+  .judge-card,
+  .judge-check,
+  .status-list li,
+  .diff-output {
+    border-radius: 14px !important;
+    clip-path: none !important;
+  }
+
+  .panel-shell::before {
+    display: none !important;
+  }
+
+  .btn {
+    text-transform: none !important;
+    letter-spacing: 0.02em !important;
+    font-weight: 600;
+    background: rgba(var(--line-rgb), 0.12);
+    border: 1px solid rgba(var(--line-rgb), 0.2);
+    box-shadow: 0 10px 18px rgba(var(--accent-rgb), 0.12);
+  }
+
+  .btn.primary {
+    background: linear-gradient(
+      135deg,
+      rgba(var(--accent-rgb), 0.35),
+      rgba(var(--accent-3-rgb), 0.25)
+    );
+    border-color: rgba(var(--accent-rgb), 0.45);
+    color: var(--text-primary);
+  }
+
+  .btn.ghost {
+    background: transparent;
+    border-color: rgba(var(--line-rgb), 0.2);
+  }
+
+  .field,
+  textarea.field,
+  input.field {
+    border-radius: 12px !important;
+    border: 1px solid rgba(var(--line-rgb), 0.2) !important;
+    background: rgba(var(--line-rgb), 0.08) !important;
+    box-shadow: none !important;
+  }
+
+  .eyebrow,
+  .section-title,
+  .panel-shell__subtitle,
+  .panel-title {
+    letter-spacing: 0.03em !important;
+    text-transform: none !important;
+  }
+
+  #app .uppercase {
+    text-transform: none !important;
+  }
+
+  #app [class*="tracking-"] {
+    letter-spacing: 0.02em !important;
+  }
+
+  #app .chip,
+  #app .badge,
+  #app .status,
+  #app .tab,
+  #app .tab-count,
+  #app .stat-label,
+  #app .step-status,
+  #app .task-status,
+  #app .tool-status,
+  #app .judge-chip,
+  #app .state-chip,
+  #app .filter-btn,
+  #app .summary-label,
+  #app .phase-chip,
+  #app .budget-chip,
+  #app .telemetry-row,
+  #app .telemetry-card,
+  #app .meta-pill,
+  #app .header-chip,
+  #app .header-search,
+  #app .core-status {
+    text-transform: none !important;
+    letter-spacing: 0.02em !important;
+  }
+
+  .focused {
+    transform: none !important;
+    box-shadow: 0 0 0 1px rgba(var(--accent-rgb), 0.35), 0 18px 30px rgba(5, 10, 18, 0.4) !important;
+    animation: none !important;
+  }
+}

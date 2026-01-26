@@ -284,13 +284,14 @@ onMounted(async () => {
   const textPrimary = cssVar("--text-primary", "#e6f1ff");
   const accent = cssVar("--accent", "#36f6ff");
   const accentRgb = cssRgbVar("--accent-rgb", "54, 246, 255");
+  const terminalBg = cssVar("--terminal-bg", "rgba(18, 28, 60, 0.95)");
   term = new Terminal({
     cursorBlink: true,
     fontFamily: '"JetBrains Mono", monospace',
     fontSize: 13,
     lineHeight: 1.2,
     theme: {
-      background: "rgba(7, 11, 20, 0.95)",
+      background: terminalBg,
       foreground: textPrimary,
       cursor: accent,
       selection: `rgba(${accentRgb}, 0.25)`,
@@ -407,25 +408,15 @@ onBeforeUnmount(() => {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 6px;
-  border-radius: 0;
-  background: rgba(4, 12, 22, 0.7);
-  border: 1px solid rgba(var(--line-rgb), 0.4);
-  clip-path: polygon(
-    var(--hud-cut-xs) 0,
-    calc(100% - var(--hud-cut-xs)) 0,
-    100% var(--hud-cut-xs),
-    100% calc(100% - var(--hud-cut-xs)),
-    calc(100% - var(--hud-cut-xs)) 100%,
-    var(--hud-cut-xs) 100%,
-    0 calc(100% - var(--hud-cut-xs)),
-    0 var(--hud-cut-xs)
-  );
+  padding: 6px 8px;
+  border-radius: 12px;
+  background: rgba(var(--line-rgb), 0.08);
+  border: 1px solid rgba(var(--line-rgb), 0.2);
 }
 
 .terminal-tab.active {
-  border-color: rgba(var(--accent-rgb), 0.5);
-  box-shadow: 0 0 12px rgba(var(--accent-rgb), 0.2);
+  border-color: rgba(var(--accent-rgb), 0.45);
+  box-shadow: 0 8px 18px rgba(var(--accent-rgb), 0.18);
 }
 
 .terminal-tab.dragging {
@@ -441,7 +432,7 @@ onBeforeUnmount(() => {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 4px 8px;
+  padding: 4px 6px;
   cursor: pointer;
 }
 
@@ -457,7 +448,7 @@ onBeforeUnmount(() => {
   height: 6px;
   border-radius: 999px;
   background: var(--accent);
-  box-shadow: 0 0 8px rgba(var(--accent-rgb), 0.6);
+  box-shadow: 0 0 8px rgba(var(--accent-rgb), 0.5);
 }
 
 .tab-close {
@@ -475,66 +466,42 @@ onBeforeUnmount(() => {
 }
 
 .tab-add {
-  border-radius: 0;
-  border: 1px dashed rgba(var(--accent-rgb), 0.4);
-  background: rgba(2, 10, 20, 0.4);
+  border-radius: 12px;
+  border: 1px dashed rgba(var(--line-rgb), 0.3);
+  background: rgba(var(--line-rgb), 0.06);
   color: var(--accent);
   font-size: 1rem;
   padding: 2px 10px;
   cursor: pointer;
-  clip-path: polygon(
-    var(--hud-cut-xs) 0,
-    calc(100% - var(--hud-cut-xs)) 0,
-    100% var(--hud-cut-xs),
-    100% calc(100% - var(--hud-cut-xs)),
-    calc(100% - var(--hud-cut-xs)) 100%,
-    var(--hud-cut-xs) 100%,
-    0 calc(100% - var(--hud-cut-xs)),
-    0 var(--hud-cut-xs)
-  );
 }
 
 .tab-status {
   font-size: 0.7rem;
   padding: 4px 10px;
-  border-radius: 0;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
+  border-radius: 999px;
+  letter-spacing: 0.08em;
   border: 1px solid transparent;
-  clip-path: polygon(
-    var(--hud-cut-xs) 0,
-    calc(100% - var(--hud-cut-xs)) 0,
-    100% var(--hud-cut-xs),
-    100% calc(100% - var(--hud-cut-xs)),
-    calc(100% - var(--hud-cut-xs)) 100%,
-    var(--hud-cut-xs) 100%,
-    0 calc(100% - var(--hud-cut-xs)),
-    0 var(--hud-cut-xs)
-  );
+  background: rgba(var(--line-rgb), 0.08);
 }
 
 .tab-status[data-state="live"] {
   color: var(--status-success);
-  border-color: rgba(var(--status-success-rgb), 0.5);
-  background: rgba(var(--status-success-rgb), 0.15);
+  border-color: rgba(var(--status-success-rgb), 0.35);
 }
 
 .tab-status[data-state="starting"] {
   color: var(--accent);
-  border-color: rgba(var(--accent-rgb), 0.5);
-  background: rgba(var(--accent-rgb), 0.12);
+  border-color: rgba(var(--accent-rgb), 0.35);
 }
 
 .tab-status[data-state="error"] {
-  color: var(--accent-3);
-  border-color: rgba(var(--accent-3-rgb), 0.5);
-  background: rgba(var(--accent-3-rgb), 0.12);
+  color: var(--status-error);
+  border-color: rgba(var(--status-error-rgb), 0.35);
 }
 
 .tab-status[data-state="idle"] {
   color: var(--text-secondary);
-  border-color: rgba(var(--text-secondary-rgb), 0.4);
-  background: rgba(var(--text-secondary-rgb), 0.12);
+  border-color: rgba(var(--text-secondary-rgb), 0.3);
 }
 
 .terminal-actions {
@@ -547,31 +514,21 @@ onBeforeUnmount(() => {
 .terminal-body {
   flex: 1;
   min-height: 220px;
-  border-radius: 0;
+  border-radius: 14px;
   overflow: hidden;
-  border: 1px solid var(--line);
-  box-shadow: inset 0 0 22px rgba(var(--accent-rgb), 0.1);
+  border: 1px solid var(--terminal-border, rgba(var(--line-rgb), 0.2));
+  box-shadow: inset 0 0 18px rgba(var(--accent-rgb), 0.12);
 }
 
 .terminal-capture {
   padding: 14px 16px;
-  border-radius: 0;
-  background: rgba(3, 10, 20, 0.85);
-  border: 1px solid rgba(var(--accent-rgb), 0.35);
+  border-radius: 14px;
+  background: rgba(var(--line-rgb), 0.08);
+  border: 1px solid rgba(var(--line-rgb), 0.2);
   font-size: 0.85rem;
-  color: var(--text-soft);
+  color: var(--text-primary);
   max-height: 180px;
   overflow: auto;
-  clip-path: polygon(
-    var(--hud-cut-xs) 0,
-    calc(100% - var(--hud-cut-xs)) 0,
-    100% var(--hud-cut-xs),
-    100% calc(100% - var(--hud-cut-xs)),
-    calc(100% - var(--hud-cut-xs)) 100%,
-    var(--hud-cut-xs) 100%,
-    0 calc(100% - var(--hud-cut-xs)),
-    0 var(--hud-cut-xs)
-  );
 }
 
 .capture-head {
@@ -581,8 +538,7 @@ onBeforeUnmount(() => {
   margin-bottom: 10px;
   color: var(--text-secondary);
   font-size: 0.75rem;
-  text-transform: uppercase;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.08em;
 }
 
 .terminal-capture pre {
@@ -591,44 +547,6 @@ onBeforeUnmount(() => {
   font-family: var(--font-body);
 }
 
-.btn {
-  border-radius: 0;
-  border: 1px solid rgba(var(--accent-rgb), 0.5);
-  padding: 8px 14px;
-  font-size: 0.75rem;
-  text-transform: uppercase;
-  letter-spacing: 0.16em;
-  background: linear-gradient(135deg, rgba(3, 12, 24, 0.95), rgba(2, 8, 16, 0.85));
-  color: var(--text-primary);
-  cursor: pointer;
-  transition: all 0.2s ease;
-  clip-path: polygon(
-    var(--hud-cut-xs) 0,
-    calc(100% - var(--hud-cut-xs)) 0,
-    100% var(--hud-cut-xs),
-    100% calc(100% - var(--hud-cut-xs)),
-    calc(100% - var(--hud-cut-xs)) 100%,
-    var(--hud-cut-xs) 100%,
-    0 calc(100% - var(--hud-cut-xs)),
-    0 var(--hud-cut-xs)
-  );
-}
-
-.btn:hover {
-  border-color: rgba(var(--accent-rgb), 0.7);
-  color: var(--accent);
-}
-
-.btn.accent {
-  background: linear-gradient(135deg, rgba(var(--accent-rgb), 0.95), rgba(var(--status-info-rgb), 0.8));
-  color: var(--bg);
-  border-color: transparent;
-  box-shadow: 0 0 18px rgba(var(--accent-rgb), 0.35);
-}
-
-.btn.ghost {
-  background: rgba(4, 12, 22, 0.7);
-}
 @media (max-width: 900px) {
   .terminal-actions {
     flex-wrap: wrap;

@@ -214,7 +214,7 @@ async function generatePlanFromGoal() {
   border-radius: 0;
   border: 1px solid rgba(var(--line-rgb), 0.35);
   color: var(--text-secondary);
-  background: rgba(8, 12, 20, 0.75);
+  background: rgba(var(--line-rgb), 0.08);
   clip-path: polygon(
     var(--hud-cut-xs) 0,
     calc(100% - var(--hud-cut-xs)) 0,

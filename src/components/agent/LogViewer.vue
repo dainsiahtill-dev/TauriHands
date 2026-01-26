@@ -65,7 +65,7 @@ function formatTime(timestamp: number) {
   align-items: center;
   padding: 6px 10px;
   border-radius: 10px;
-  background: rgba(8, 12, 20, 0.8);
+  background: rgba(var(--line-rgb), 0.08);
   border: 1px solid var(--line);
   font-size: 0.75rem;
 }
